@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: "PingFang SC", -apple-system, sans-serif;
+    margin: 0; background: #16181d; color: #e8eaed; font-size: 13px;
+    padding: 16px; user-select: none;
+  }
+  h2 { font-size: 15px; margin: 0 0 10px; }
+
+  .seg {
+    display: flex; background: #1e2128; border: 1px solid #2a2e36;
+    border-radius: 999px; padding: 3px; margin-bottom: 12px;
+  }
+  .seg button {
+    flex: 1; border: none; background: none; color: #8b919a;
+    padding: 6px 0; border-radius: 999px; cursor: pointer; font-size: 12px;
+  }
+  .seg button.on { background: #4c8dff; color: #fff; font-weight: 600; }
+
+  .hint { color: #8b919a; font-size: 11px; margin-bottom: 4px; }
+
+  .cat {
+    display: flex; align-items: center; gap: 8px;
+    background: #1e2128; border: 1px solid #2a2e36; border-radius: 8px;
+    padding: 8px 10px; margin-top: 8px; cursor: pointer;
+  }
+  .cat .arrow { color: #6b7078; font-size: 10px; width: 10px; }
+  .cat .name { font-weight: 600; font-size: 13px; }
+  .cat .count { color: #6b7078; font-size: 11px; margin-left: auto; }
+
+  .cat.static { cursor: default; }
+  .cat.static .name { color: #8b919a; font-size: 12px; font-weight: 500; }
+  #commonGroup { border-radius: 8px; display: block; }
+
+  .group { display: none; border: 1px solid #2a2e36; border-top: none;
+    border-radius: 0 0 8px 8px; overflow: hidden; }
+  .group.open { display: block; }
+
+  .row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 10px; border-top: 1px solid #23262d;
+  }
+  .row:first-child { border-top: none; }
+  .row .lbl { flex: 1; font-size: 12px; }
+  .row .thr { color: #8b919a; font-size: 11px; white-space: nowrap; }
+  .row .ops { display: flex; gap: 4px; }
+  .row .ops button {
+    background: #23262d; border: 1px solid #2a2e36; color: #c5c9d0;
+    border-radius: 4px; width: 20px; height: 18px; cursor: pointer; font-size: 10px;
+  }
+  .row .ops button:hover { background: #2f3440; }
+
+  /* 胶囊开关 */
+  .pill {
+    position: relative; width: 36px; height: 20px; border-radius: 999px;
+    background: #3a3f4a; cursor: pointer; transition: background .15s; flex: none;
+  }
+  .pill.on { background: #4c8dff; }
+  .pill::after {
+    content: ""; position: absolute; top: 2px; left: 2px;
+    width: 16px; height: 16px; border-radius: 50%; background: #fff;
+    transition: left .15s;
+  }
+  .pill.on::after { left: 18px; }
+
+  input[type="number"] {
+    width: 58px; background: #23262d; border: 1px solid #2a2e36;
+    color: #e8eaed; border-radius: 4px; padding: 2px 5px; font-size: 11px;
+  }
+
+  select {
+    background: #23262d; color: #e8eaed; border: 1px solid #2a2e36;
+    border-radius: 4px; padding: 3px 6px; font-size: 12px;
+  }
+  input[type="range"] { flex: 1; accent-color: #4c8dff; }
+  .pct { width: 38px; text-align: right; color: #8b919a; font-size: 11px; }
+  select { max-width: 104px; }
+
+  .err { color: #e06c75; font-size: 12px; margin-top: 8px; }
+</style>
+</head>
+<body>
+  <h2>MiMo 仪表盘设置</h2>
+  <div class="seg">
+    <button id="segFloat">悬浮窗</button>
+    <button id="segTray">托盘栏</button>
+  </div>
+  <div class="hint" id="targetHint"></div>
+  <div id="groups"></div>
+
+  <div class="cat" id="othersHead">
+    <span class="arrow">▸</span><span class="name">其他</span>
+    <span class="count"></span>
+  </div>
+  <div class="group" id="othersGroup">
+    <div class="row" id="rowHero">
+      <span class="lbl">核心位（大数字）</span>
+      <select id="hero1"></select>
+      <select id="hero2"></select>
+    </div>
+    <div class="row" id="rowMode">
+      <span class="lbl">模式</span>
+      <select id="floatMode"><option value="full">完整</option><option value="mini">迷你单行</option></select>
+    </div>
+    <div class="row" id="rowOpacity">
+      <span class="lbl">透明度</span>
+      <input type="range" id="opacity" min="60" max="100" step="5" style="flex:1" />
+      <span class="pct" id="opacityPct"></span>
+    </div>
+    <div class="row" id="rowDensity">
+      <span class="lbl">密度</span>
+      <select id="density"><option value="std">标准</option><option value="compact">紧凑</option></select>
+    </div>
+    <div class="row" id="rowTrayTitle">
+      <span class="lbl">托盘显示文字摘要（全部已勾选字段）</span>
+      <span class="pill" id="trayTitle"></span>
+    </div>
+  </div>
+
+  <div class="cat static" id="commonHead"><span class="name">公共设置</span></div>
+  <div class="group open" id="commonGroup">
+    <div class="row" id="rowShowFloat">
+      <span class="lbl">显示悬浮窗（记忆，下次启动生效）</span>
+      <span class="pill" id="showFloat"></span>
+    </div>
+    <div class="row" id="rowRefresh">
+      <span class="lbl">刷新间隔</span>
+      <select id="refreshSec">
+        <option value="10">10 秒</option>
+        <option value="30">30 秒</option>
+        <option value="60">60 秒</option>
+        <option value="300">5 分钟</option>
+      </select>
+    </div>
+    <div class="row" id="rowLaunch">
+      <span class="lbl">开机自启动</span>
+      <span class="pill" id="launchAtLogin"></span>
+    </div>
+  </div>
+
+  <div class="err" id="err"></div>
+
+<script>
+  let state = null;
+  let target = localStorage.getItem('target') === 'tray' ? 'tray' : 'float';
+  let saveTimer = null;
+  const CATS = ['余额', 'Token Plan', '桌面端订阅'];
+  const catOpen = (c) => localStorage.getItem('cat:' + c) === '1';
+
+  // 所有改动防抖后立即落盘生效（无需保存按钮）
+  function scheduleSave() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => api.saveConfig(state.config), 250);
+  }
+
+  const activeList = () =>
+    target === 'tray' ? state.config.tray.fields : state.config.float.fields;
+
+  function pill(el, on) {
+    el.classList.toggle('on', on);
+  }
+  function bindPill(el, get, set) {
+    el.onclick = () => {
+      const next = !get();
+      set(next);
+      pill(el, next);
+      scheduleSave();
+    };
+  }
+
+  function moveField(id, dir) {
+    const list = activeList();
+    const meta = state.fieldsMeta.find((m) => m.id === id);
+    const sameCat = list.filter((f) => {
+      const m = state.fieldsMeta.find((x) => x.id === f.id);
+      return m && m.cat === meta.cat;
+    }).map((f) => f.id);
+    const pos = sameCat.indexOf(id);
+    const t = pos + dir;
+    if (t < 0 || t >= sameCat.length) return;
+    const a = list.findIndex((f) => f.id === sameCat[pos]);
+    const b = list.findIndex((f) => f.id === sameCat[t]);
+    [list[a], list[b]] = [list[b], list[a]];
+  }
+
+  function renderGroups() {
+    const s = state;
+    const cfg = s.config;
+    const list = activeList();
+    const meta = s.fieldsMeta;
+    const root = document.getElementById('groups');
+    root.innerHTML = '';
+
+    for (const cat of CATS) {
+      const ids = list.filter((f) => {
+        const m = meta.find((x) => x.id === f.id);
+        return m && m.cat === cat;
+      });
+      const onCount = ids.filter((f) => f.on).length;
+      const open = catOpen(cat);
+
+      const head = document.createElement('div');
+      head.className = 'cat';
+      head.innerHTML = `<span class="arrow">${open ? '▾' : '▸'}</span>
+        <span class="name"></span><span class="count">${onCount}/${ids.length} 显示</span>`;
+      head.querySelector('.name').textContent = cat;
+      head.onclick = () => {
+        localStorage.setItem('cat:' + cat, open ? '0' : '1');
+        renderGroups();
+      };
+      root.appendChild(head);
+
+      const group = document.createElement('div');
+      group.className = 'group' + (open ? ' open' : '');
+      for (const f of ids) {
+        const m = meta.find((x) => x.id === f.id) || { label: f.id };
+        const th = cfg.thresholds[f.id] || {};
+        const row = document.createElement('div');
+        row.className = 'row';
+        row.innerHTML = `
+          <span class="lbl"></span>
+          <span class="thr"></span>
+          <span class="ops"><button class="up">↑</button><button class="dn">↓</button></span>
+          <span class="pill"></span>`;
+        row.querySelector('.lbl').textContent = m.label;
+        const thr = row.querySelector('.thr');
+        if (m.min) thr.insertAdjacentHTML('beforeend',
+          `低于 <input type="number" class="min" value="${th.min ?? ''}" placeholder="—"> `);
+        if (m.max) thr.insertAdjacentHTML('beforeend',
+          `高于 <input type="number" class="max" value="${th.max ?? ''}" placeholder="—">`);
+        if (!m.min && !m.max) thr.textContent = '—';
+
+        const p = row.querySelector('.pill');
+        pill(p, f.on);
+        bindPill(p, () => f.on, (v) => { f.on = v; });
+        const minEl = row.querySelector('.min'), maxEl = row.querySelector('.max');
+        if (minEl) minEl.oninput = (e) => {
+          cfg.thresholds[f.id] = cfg.thresholds[f.id] || {};
+          cfg.thresholds[f.id].min = e.target.value === '' ? null : Number(e.target.value);
+          scheduleSave();
+        };
+        if (maxEl) maxEl.oninput = (e) => {
+          cfg.thresholds[f.id] = cfg.thresholds[f.id] || {};
+          cfg.thresholds[f.id].max = e.target.value === '' ? null : Number(e.target.value);
+          scheduleSave();
+        };
+        row.querySelector('.up').onclick = () => { moveField(f.id, -1); renderGroups(); scheduleSave(); };
+        row.querySelector('.dn').onclick = () => { moveField(f.id, +1); renderGroups(); scheduleSave(); };
+        group.appendChild(row);
+      }
+      root.appendChild(group);
+    }
+  }
+
+  function render(s) {
+    state = s;
+    const cfg = s.config;
+    // 分段控件
+    document.getElementById('segFloat').classList.toggle('on', target === 'float');
+    document.getElementById('segTray').classList.toggle('on', target === 'tray');
+    document.getElementById('targetHint').textContent = target === 'float'
+      ? '以下字段与顺序仅作用于悬浮窗'
+      : '以下字段与顺序仅作用于托盘摘要与菜单';
+
+    // 其他收纳组：按当前页显示相关选项
+    const othersOpen = catOpen('其他');
+    const head = document.getElementById('othersHead');
+    head.querySelector('.arrow').textContent = othersOpen ? '▾' : '▸';
+    document.getElementById('othersGroup').classList.toggle('open', othersOpen);
+    const floatOnlyRows = ['rowHero', 'rowMode', 'rowOpacity', 'rowDensity'];
+    for (const id of floatOnlyRows) {
+      document.getElementById(id).style.display = target === 'float' ? '' : 'none';
+    }
+    document.getElementById('rowTrayTitle').style.display = target === 'tray' ? '' : 'none';
+    const visRows = [...document.querySelectorAll('#othersGroup .row')]
+      .filter((r) => r.style.display !== 'none').length;
+    head.querySelector('.count').textContent = visRows + ' 项';
+
+    // 悬浮窗自定义控件回填
+    const f = cfg.float || {};
+    document.getElementById('floatMode').value = f.mode === 'mini' ? 'mini' : 'full';
+    document.getElementById('density').value = f.density === 'compact' ? 'compact' : 'std';
+    document.getElementById('opacity').value = String(Math.round((f.opacity ?? 0.96) * 100));
+    document.getElementById('opacityPct').textContent =
+      Math.round((f.opacity ?? 0.96) * 100) + '%';
+    // 核心位下拉：仅已勾选字段
+    const enabled = cfg.float.fields.filter((x) => x.on)
+      .map((x) => ({ id: x.id, label: (s.fieldsMeta.find((m) => m.id === x.id) || {}).label || x.id }));
+    for (const selId of ['hero1', 'hero2']) {
+      const sel = document.getElementById(selId);
+      sel.innerHTML = '<option value="">自动</option>' +
+        enabled.map((o) => `<option value="${o.id}">${o.label}</option>`).join('');
+    }
+    const heroIds = f.heroIds || [];
+    document.getElementById('hero1').value = heroIds[0] || '';
+    document.getElementById('hero2').value = heroIds[1] || '';
+
+    // 正在输入阈值时不重建字段列表，避免打断输入
+    const ae = document.activeElement;
+    const typing = ae && ae.tagName === 'INPUT' && ae.closest && ae.closest('#groups');
+    if (!typing) renderGroups();
+
+    pill(document.getElementById('trayTitle'), cfg.tray.showTitle);
+    pill(document.getElementById('launchAtLogin'), !!cfg.launchAtLogin);
+    pill(document.getElementById('showFloat'), cfg.float.show !== false);
+    document.getElementById('refreshSec').value = String(cfg.refreshSec);
+    document.getElementById('err').textContent = s.error ? '数据错误: ' + s.error : '';
+  }
+
+  document.getElementById('segFloat').onclick = () => { target = 'float'; localStorage.setItem('target', target); render(state); };
+  document.getElementById('segTray').onclick = () => { target = 'tray'; localStorage.setItem('target', target); render(state); };
+  document.getElementById('othersHead').onclick = () => {
+    localStorage.setItem('cat:其他', catOpen('其他') ? '0' : '1');
+    render(state);
+  };
+  document.getElementById('opacity').oninput = (e) => {
+    document.getElementById('opacityPct').textContent = e.target.value + '%';
+    state.config.float.opacity = Number(e.target.value) / 100;
+    scheduleSave();
+  };
+  document.getElementById('floatMode').onchange = (e) => {
+    state.config.float.mode = e.target.value;
+    scheduleSave();
+  };
+  document.getElementById('density').onchange = (e) => {
+    state.config.float.density = e.target.value;
+    scheduleSave();
+  };
+  for (const selId of ['hero1', 'hero2']) {
+    document.getElementById(selId).onchange = () => {
+      const a = document.getElementById('hero1').value || null;
+      const b = document.getElementById('hero2').value || null;
+      state.config.float.heroIds = [a, b];
+      scheduleSave();
+    };
+  }
+  document.getElementById('refreshSec').onchange = (e) => {
+    state.config.refreshSec = Number(e.target.value);
+    scheduleSave();
+  };
+  bindPill(document.getElementById('trayTitle'),
+    () => state.config.tray.showTitle,
+    (v) => { state.config.tray.showTitle = v; });
+  bindPill(document.getElementById('launchAtLogin'),
+    () => state.config.launchAtLogin,
+    (v) => { state.config.launchAtLogin = v; });
+  bindPill(document.getElementById('showFloat'),
+    () => state.config.float.show !== false,
+    (v) => { state.config.float.show = v; });
+
+  api.onState(render);
+  api.getState().then(render);
+</script>
+</body>
+</html>

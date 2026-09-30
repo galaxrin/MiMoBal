@@ -1,0 +1,14 @@
+{
+  "name": "mimo-dash",
+  "version": "0.1.0",
+  "description": "MiMo 余额 / Token Plan 桌面悬浮窗 + 托盘仪表盘",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^44.5.0",
+    "ws": "^8.22.0"
+  }
+}
