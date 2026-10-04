@@ -5,3 +5,5 @@ boot.err
 pboot.log
 pboot.err
 dist/
+dist.log
+dist.err
