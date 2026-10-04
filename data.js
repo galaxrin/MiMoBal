@@ -1,5 +1,11 @@
 // MiMo 平台数据层：复用 MiMo Desktop 的小米账号 passToken 换平台会话
 // 链路（已用 Python 版验证）：serviceLogin(sid=api-platform) -> /sts -> Cookie -> /api/v1/*
+//
+// 凭证读取顺序：
+//   1) xiaomi-account 分区 Cookies SQLite —— macOS 可直接读；Windows 上该库通常被
+//      MiMo Desktop 的 Chromium Network Service 独占锁定，读不到时进入 2)
+//   2) 分区 HTTP 缓存（Cache/Cache_Data/*）里缓存的 serviceLogin 响应 JSON ——
+//      其中回显了当前 passToken；缓存块文件也可能被短时锁定，逐文件跳过 + 整轮重试
 'use strict';
 
 const fs = require('fs');
@@ -7,28 +13,189 @@ const os = require('os');
 const path = require('path');
 const { DatabaseSync } = require('node:sqlite');
 
-const COOKIE_DB = path.join(
-  os.homedir(),
-  'Library/Application Support/Xiaomi MiMo/Partitions/xiaomi-account/Cookies'
-);
-const API = 'https://platform.xiaomimimo.com/api/v1';
-const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)';
+// MiMo Desktop 的 userData 目录（区别于本应用自己的 userData）
+function desktopUserData() {
+  if (process.platform === 'win32') {
+    return path.join(
+      process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'),
+      'Xiaomi MiMo'
+    );
+  }
+  if (process.platform === 'darwin') {
+    return path.join(os.homedir(), 'Library', 'Application Support', 'Xiaomi MiMo');
+  }
+  return path.join(os.homedir(), '.config', 'Xiaomi MiMo');
+}
 
-function readPassToken() {
+// Chromium 布局差异：新版在 Network/Cookies，旧版在分区根
+function cookieDbCandidates() {
+  const partition = path.join(desktopUserData(), 'Partitions', 'xiaomi-account');
+  return [
+    path.join(partition, 'Network', 'Cookies'),
+    path.join(partition, 'Cookies'),
+  ];
+}
+
+const API = 'https://platform.xiaomimimo.com/api/v1';
+const markerPassToken = Buffer.from('passToken');
+const UA = process.platform === 'win32'
+  ? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
+  : process.platform === 'darwin'
+    ? 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)'
+    : 'Mozilla/5.0 (X11; Linux x86_64)';
+
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function credsFromCookieDb(dbPath) {
+  if (!fs.existsSync(dbPath)) throw new Error(`cookie db missing: ${dbPath}`);
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mimocookie_'));
   for (const suffix of ['', '-wal', '-shm']) {
-    const src = COOKIE_DB + suffix;
-    if (fs.existsSync(src)) fs.copyFileSync(src, path.join(tmp, path.basename(COOKIE_DB) + suffix));
+    const src = dbPath + suffix;
+    if (fs.existsSync(src)) fs.copyFileSync(src, path.join(tmp, path.basename(dbPath) + suffix));
   }
-  const db = new DatabaseSync(path.join(tmp, path.basename(COOKIE_DB)));
+  const db = new DatabaseSync(path.join(tmp, path.basename(dbPath)));
   const rows = db.prepare('select name, value from cookies').all();
   db.close();
   fs.rmSync(tmp, { recursive: true, force: true });
   const map = Object.fromEntries(rows.map((r) => [r.name, r.value]));
   if (!map.passToken || !map.userId) {
-    throw new Error('未找到小米账号 passToken，请先在 MiMo Desktop 登录');
+    throw new Error('cookie db 里没有 passToken/userId');
   }
   return map;
+}
+
+// 从含 passToken 的字节流里解析出完整 JSON 对象（大括号配对，跳过字符串内部）
+function extractLoginPayloads(buf) {
+  const marker = Buffer.from('passToken');
+  const payloads = [];
+  let from = 0;
+  for (;;) {
+    const hit = buf.indexOf(marker, from);
+    if (hit < 0) break;
+    from = hit + marker.length;
+    // 从命中位置向前找包围它的 '{'（由内向外逐层尝试）
+    const openers = [];
+    let depth = 0;
+    for (let j = hit - 1; j >= 0 && openers.length < 8; j--) {
+      const c = buf[j];
+      if (c === 0x7d) depth++;
+      else if (c === 0x7b) {
+        if (depth === 0) openers.push(j);
+        else depth--;
+      }
+    }
+    for (const start of openers) {
+      const end = matchBrace(buf, start);
+      if (end < 0) continue;
+      try {
+        const obj = JSON.parse(buf.toString('utf8', start, end + 1));
+        if (obj && typeof obj.passToken === 'string' && obj.passToken) {
+          payloads.push({ obj, start });
+          break;
+        }
+      } catch { /* 该层不是完整 JSON，继续向外层试 */ }
+    }
+  }
+  return payloads;
+}
+
+function matchBrace(buf, start) {
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let j = start; j < buf.length; j++) {
+    const c = buf[j];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === 0x5c) esc = true;
+      else if (c === 0x22) inStr = false;
+      continue;
+    }
+    if (c === 0x22) inStr = true;
+    else if (c === 0x7b) depth++;
+    else if (c === 0x7d) {
+      depth--;
+      if (depth === 0) return j;
+    }
+  }
+  return -1;
+}
+
+function userIdFallback() {
+  try {
+    const p = path.join(desktopUserData(), 'xiaomi-last-confirmed.json');
+    const j = JSON.parse(fs.readFileSync(p, 'utf8'));
+    if (j && j.userId) return String(j.userId);
+  } catch { /* 不存在或损坏则忽略 */ }
+  return null;
+}
+
+function credsFromHttpCache() {
+  const dir = path.join(desktopUserData(), 'Partitions', 'xiaomi-account', 'Cache', 'Cache_Data');
+  let names;
+  try {
+    names = fs.readdirSync(dir).sort();
+  } catch {
+    return null;
+  }
+  for (let round = 0; round < 4; round++) {
+    let best = null;
+    let anyUnreadable = false;
+    for (const name of names) {
+      let buf;
+      try {
+        buf = fs.readFileSync(path.join(dir, name));
+      } catch {
+        anyUnreadable = true; // 被 MiMo Desktop 锁着，跳过
+        continue;
+      }
+      if (!buf.includes(markerPassToken)) continue;
+      const hits = extractLoginPayloads(buf);
+      if (!hits.length) continue;
+      let mtime = 0;
+      try { mtime = fs.statSync(path.join(dir, name)).mtimeMs; } catch {}
+      // 多个块里都有时，取修改时间最新的那份
+      if (!best || mtime >= best.mtime) best = { obj: hits[0].obj, mtime };
+    }
+    if (best) {
+      const creds = {
+        passToken: best.obj.passToken,
+        userId: best.obj.userId ? String(best.obj.userId) : userIdFallback(),
+        cUserId: best.obj.cUserId ? String(best.obj.cUserId) : undefined,
+      };
+      if (creds.userId) return creds;
+      // 有 token 没 userId 也放行不了登录，继续找下一轮
+    }
+    if (!anyUnreadable) break; // 全部文件都读到了还命中不了 = 缓存里确实没有
+    if (round < 3) sleepSync(400);
+  }
+  return null;
+}
+
+function readPassToken() {
+  let lastErr = null;
+  for (const db of cookieDbCandidates()) {
+    try {
+      return credsFromCookieDb(db);
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  try {
+    const creds = credsFromHttpCache();
+    if (creds) return creds;
+  } catch (e) {
+    lastErr = lastErr || e;
+  }
+  throw new Error(
+    '未找到小米账号 passToken，请先在 MiMo Desktop 登录' +
+    (process.platform === 'win32'
+      ? '；若已登录，可能是凭证文件暂时被占用，刷新时会自动重试'
+      : '') +
+    (lastErr ? `（${lastErr.message}）` : '')
+  );
 }
 
 class Session {

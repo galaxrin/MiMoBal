@@ -8,6 +8,11 @@ const fs = require('fs');
 const path = require('path');
 const { snapshot } = require('./data');
 
+// Windows：通知/任务栏归属需要稳定的 AppUserModelID（须在 ready 前设置）
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.galaxrin.mimo-dash');
+}
+
 // ---------- 字段注册表 ----------
 const FIELDS = [
   { id: 'balance.total', label: '账户余额', kind: 'money', min: true, cat: '余额' },
@@ -280,14 +285,21 @@ function traySummary() {
 
 function updateTray() {
   if (!tray) return;
-  if (config.tray.showTitle) {
-    const t = traySummary();
-    tray.setTitle(t ? ` ${t}` : '');
-  } else {
-    tray.setTitle('');
+  const summary = config.tray.showTitle ? traySummary() : '';
+  // 菜单栏文字摘要只在 macOS 有对应物；Windows 托盘没有文字位
+  if (process.platform === 'darwin') {
+    tray.setTitle(summary ? ` ${summary}` : '');
   }
-  // 下拉：设置 + 退出，其余操作收进设置页
+  // 悬停 tooltip：各平台都带上摘要，Windows 上这是主要的“扫一眼”入口
+  const tip = summary ? `MiMo 仪表盘 · ${summary}` : 'MiMo 仪表盘';
+  tray.setToolTip(tip.length > 120 ? `${tip.slice(0, 119)}…` : tip);
+  // 下拉：设置 + 退出；Windows 额外把已勾选字段列成菜单项（替代托盘文字）
+  const entries = process.platform !== 'darwin' && summary
+    ? orderedEntries('tray').map((e) => ({ label: `${e.label}  ${e.text}`, enabled: false }))
+    : [];
   tray.setContextMenu(Menu.buildFromTemplate([
+    ...entries,
+    ...(entries.length ? [{ type: 'separator' }] : []),
     { label: '设置', click: openSettings },
     { type: 'separator' },
     { label: '退出', click: () => app.quit() },
@@ -295,18 +307,28 @@ function updateTray() {
 }
 
 function createTray() {
-  // 18pt 逻辑尺寸；@2x 以 scaleFactor 挂载，Retina 清晰
   let img;
-  try {
-    const buf = fs.readFileSync(path.join(__dirname, 'icon@2x.png'));
-    img = nativeImage.createFromBuffer(buf, { scaleFactor: 2.0 });
-  } catch {}
-  if (!img || img.isEmpty()) {
-    img = nativeImage.createFromPath(path.join(__dirname, 'icon.png'));
+  if (process.platform === 'win32') {
+    // Windows 模板图标机制不存在，用彩色图标（深浅任务栏都可见）
+    img = nativeImage.createFromPath(path.join(__dirname, 'icon-win.png'));
+    if (!img || img.isEmpty()) img = nativeImage.createFromPath(path.join(__dirname, 'icon.png'));
+  } else {
+    // 18pt 逻辑尺寸；@2x 以 scaleFactor 挂载，Retina 清晰
+    try {
+      const buf = fs.readFileSync(path.join(__dirname, 'icon@2x.png'));
+      img = nativeImage.createFromBuffer(buf, { scaleFactor: 2.0 });
+    } catch {}
+    if (!img || img.isEmpty()) {
+      img = nativeImage.createFromPath(path.join(__dirname, 'icon.png'));
+    }
+    img.setTemplateImage(true);
   }
-  img.setTemplateImage(true);
   tray = new Tray(img);
   tray.setToolTip('MiMo 仪表盘');
+  if (process.platform === 'win32') {
+    // Windows 惯例：左键点托盘图标 = 显示/隐藏悬浮窗（右键出菜单）
+    tray.on('click', toggleFloat);
+  }
   updateTray();
 }
 
