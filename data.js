@@ -44,9 +44,9 @@ const UA = process.platform === 'win32'
     ? 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)'
     : 'Mozilla/5.0 (X11; Linux x86_64)';
 
-function sleepSync(ms) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-}
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+// 服务端拒绝过的凭证：登录时逐枚换候选，避免死磕同一枚坏 token
+const rejectedTokens = new Set();
 
 function credsFromCookieDb(dbPath) {
   if (!fs.existsSync(dbPath)) throw new Error(`cookie db missing: ${dbPath}`);
@@ -132,23 +132,26 @@ function userIdFallback() {
   return null;
 }
 
-function credsFromHttpCache() {
+// 扫描分区 HTTP 缓存，返回全部可用凭证候选（按文件 mtime 降序，按 passToken 去重）。
+// 缓存块可能被 Network Service 短时占用：逐文件跳过 + 整轮异步重试（不阻塞主进程）。
+async function collectCacheCandidates() {
   const dir = path.join(desktopUserData(), 'Partitions', 'xiaomi-account', 'Cache', 'Cache_Data');
   let names;
   try {
     names = fs.readdirSync(dir).sort();
   } catch {
-    return null;
+    return { cands: [], hadLocks: false, dirMissing: true };
   }
+  let hadLocks = false;
   for (let round = 0; round < 4; round++) {
-    let best = null;
+    const byToken = new Map();
     let anyUnreadable = false;
     for (const name of names) {
       let buf;
       try {
         buf = fs.readFileSync(path.join(dir, name));
       } catch {
-        anyUnreadable = true; // 被 MiMo Desktop 锁着，跳过
+        anyUnreadable = true; // 被占用，跳过
         continue;
       }
       if (!buf.includes(markerPassToken)) continue;
@@ -156,44 +159,52 @@ function credsFromHttpCache() {
       if (!hits.length) continue;
       let mtime = 0;
       try { mtime = fs.statSync(path.join(dir, name)).mtimeMs; } catch {}
-      // 多个块里都有时，取修改时间最新的那份
-      if (!best || mtime >= best.mtime) best = { obj: hits[0].obj, mtime };
+      for (const h of hits) {
+        const o = h.obj;
+        if (!o.userId && !userIdFallback()) continue;
+        const cand = {
+          passToken: o.passToken,
+          userId: o.userId ? String(o.userId) : userIdFallback(),
+          cUserId: o.cUserId ? String(o.cUserId) : undefined,
+          mtime,
+        };
+        const prev = byToken.get(cand.passToken);
+        if (!prev || mtime > prev.mtime) byToken.set(cand.passToken, cand);
+      }
     }
-    if (best) {
-      const creds = {
-        passToken: best.obj.passToken,
-        userId: best.obj.userId ? String(best.obj.userId) : userIdFallback(),
-        cUserId: best.obj.cUserId ? String(best.obj.cUserId) : undefined,
-      };
-      if (creds.userId) return creds;
-      // 有 token 没 userId 也放行不了登录，继续找下一轮
-    }
-    if (!anyUnreadable) break; // 全部文件都读到了还命中不了 = 缓存里确实没有
-    if (round < 3) sleepSync(400);
+    hadLocks = hadLocks || anyUnreadable;
+    const cands = [...byToken.values()].sort((a, b) => b.mtime - a.mtime);
+    if (cands.length) return { cands, hadLocks, dirMissing: false };
+    if (!anyUnreadable) return { cands: [], hadLocks, dirMissing: false }; // 全读到了还命中不了 = 缓存里确实没有
+    if (round < 3) await delay(400);
   }
-  return null;
+  return { cands: [], hadLocks, dirMissing: false };
 }
 
-function readPassToken() {
+async function readPassToken() {
   let lastErr = null;
   for (const db of cookieDbCandidates()) {
     try {
-      return credsFromCookieDb(db);
+      const creds = credsFromCookieDb(db);
+      if (!rejectedTokens.has(creds.passToken)) return creds;
     } catch (e) {
       lastErr = e;
     }
   }
-  try {
-    const creds = credsFromHttpCache();
-    if (creds) return creds;
-  } catch (e) {
-    lastErr = lastErr || e;
+  const { cands, hadLocks, dirMissing } = await collectCacheCandidates();
+  const usable = cands.filter((c) => !rejectedTokens.has(c.passToken));
+  if (usable.length) return usable[0];
+  if (cands.length) {
+    // 候选都在，但全被服务端拒过 —— 该换登录态了
+    throw new Error('缓存中的凭证已被服务端拒绝，请在 MiMo Desktop 重新登录后再试');
   }
+  const winHint = process.platform === 'win32' && hadLocks
+    ? '；若已登录，可能是凭证文件暂时被占用，刷新时会自动重试'
+    : '';
   throw new Error(
     '未找到小米账号 passToken，请先在 MiMo Desktop 登录' +
-    (process.platform === 'win32'
-      ? '；若已登录，可能是凭证文件暂时被占用，刷新时会自动重试'
-      : '') +
+    winHint +
+    (dirMissing ? '（未找到 MiMo Desktop 的缓存目录）' : '') +
     (lastErr ? `（${lastErr.message}）` : '')
   );
 }
@@ -240,12 +251,31 @@ class Session {
     return resp;
   }
 
+  // 凭证可能过期：服务端拒绝一枚就拉黑换下一枚，最多试 3 枚候选
   async login() {
-    const acc = readPassToken();
-    this.cookies.set('passToken', acc.passToken);
-    this.cookies.set('userId', acc.userId);
-    if (acc.cUserId) this.cookies.set('cUserId', acc.cUserId);
+    let credErr = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const acc = await readPassToken();
+      this.cookies.clear();
+      this.cookies.set('passToken', acc.passToken);
+      this.cookies.set('userId', acc.userId);
+      if (acc.cUserId) this.cookies.set('cUserId', acc.cUserId);
+      try {
+        await this.loginWithCreds();
+        return;
+      } catch (e) {
+        if (e && e.credRejected) {
+          rejectedTokens.add(acc.passToken);
+          credErr = e;
+          continue;
+        }
+        throw e;
+      }
+    }
+    throw credErr || new Error('凭证重试次数已用尽');
+  }
 
+  async loginWithCreds() {
     // 回调必须用平台 401 响应里的 loginUrl（自带 sign），自拼会被拒
     const probe = await this.request(`${API}/balance`);
     const info = await probe.json().catch(() => ({}));
@@ -255,7 +285,9 @@ class Session {
     const body = await resp.text();
     const payload = JSON.parse(body.split('&&&START&&&').pop());
     if (payload.code !== 0 || !payload.location) {
-      throw new Error(`小米登录失败: ${payload.desc || payload.description || payload.code}`);
+      const err = new Error(`小米登录失败: ${payload.desc || payload.description || payload.code}`);
+      err.credRejected = true; // 服务端明确拒绝这枚凭证 → 拉黑，外层换下一枚
+      throw err;
     }
     // 跟随 location：account -> /sts（下发平台 Cookie）
     let loc = payload.location;
@@ -318,7 +350,7 @@ function subReq(cookies, url, { sendAccount = true, redirect = 'manual' } = {}) 
 // 链路：/api/user/xiaomi/me 302 签名 loginUrl -> serviceLogin(passToken) -> /api/sts 下发 cookie
 async function mimopcLogin() {
   const cookies = new Map();
-  const acc = readPassToken();
+  const acc = await readPassToken();
   cookies.set('passToken', acc.passToken);
   cookies.set('userId', acc.userId);
   if (acc.cUserId) cookies.set('cUserId', acc.cUserId);

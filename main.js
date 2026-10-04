@@ -13,76 +13,7 @@ if (process.platform === 'win32') {
   app.setAppUserModelId('com.galaxrin.mimo-dash');
 }
 
-// ---------- 字段注册表 ----------
-const FIELDS = [
-  { id: 'balance.total', label: '账户余额', kind: 'money', min: true, cat: '余额' },
-  { id: 'balance.cash', label: '现金余额', kind: 'money', min: true, cat: '余额' },
-  { id: 'balance.gift', label: '礼品余额', kind: 'money', min: true, cat: '余额' },
-  { id: 'balance.frozen', label: '冻结金额', kind: 'money', cat: '余额' },
-  { id: 'plan.name', label: '套餐名', kind: 'text', cat: 'Token Plan' },
-  { id: 'plan.periodEnd', label: '套餐到期日', kind: 'text', min: true, cat: 'Token Plan' },
-  { id: 'plan.autoRenew', label: '自动续订', kind: 'text', cat: 'Token Plan' },
-  { id: 'usage.monthPercent', label: '本月用量 %', kind: 'percent', max: true, cat: 'Token Plan' },
-  { id: 'usage.monthTokens', label: '本月已用 / 总量', kind: 'text', cat: 'Token Plan' },
-  { id: 'usage.planPercent', label: '套餐总量用量 %', kind: 'percent', max: true, cat: 'Token Plan' },
-  { id: 'sub.title', label: '桌面端订阅名', kind: 'text', cat: '桌面端订阅' },
-  { id: 'sub.percent', label: '订阅用量 %（桌面端）', kind: 'percent', max: true, cat: '桌面端订阅' },
-  { id: 'sub.resetDate', label: '订阅重置日（桌面端）', kind: 'text', cat: '桌面端订阅' },
-];
-
-function fmtTokens(n) {
-  for (const [unit, div] of [['B', 1e9], ['M', 1e6], ['K', 1e3]]) {
-    if (n >= div) return `${(n / div).toFixed(2)}${unit}`;
-  }
-  return String(n);
-}
-
-function computeValues(s) {
-  const b = s.balance || {};
-  const d = s.detail || {};
-  const u = s.usage || {};
-  const mi = (u.monthUsage && u.monthUsage.items && u.monthUsage.items[0]) || {};
-  const pi = (u.usage && u.usage.items && u.usage.items[0]) || {};
-  const sub = s.subscription;
-  const v = {
-    'balance.total': { text: `¥${b.balance ?? '?'}`, num: parseFloat(b.balance) },
-    'balance.cash': { text: `¥${b.cashBalance ?? '?'}`, num: parseFloat(b.cashBalance) },
-    'balance.gift': { text: `¥${b.giftBalance ?? '?'}`, num: parseFloat(b.giftBalance) },
-    'balance.frozen': { text: `¥${b.frozenBalance ?? '?'}`, num: parseFloat(b.frozenBalance) },
-    'plan.name': { text: d.planName || '—' },
-    'plan.periodEnd': { text: (d.currentPeriodEnd || '—').slice(0, 10) },
-    'plan.autoRenew': { text: d.enableAutoRenew ? '开' : '关' },
-    'usage.monthPercent': { text: `${Math.round((mi.percent || 0) * 100)}%`, num: (mi.percent || 0) * 100 },
-    'usage.monthTokens': { text: `${fmtTokens(mi.used || 0)} / ${fmtTokens(mi.limit || 0)}` },
-    'usage.planPercent': { text: `${Math.round((pi.percent || 0) * 100)}%`, num: (pi.percent || 0) * 100 },
-  };
-  // D7：桌面端订阅（mimo-server sid=mimopc），拿到才有值，否则字段隐藏
-  const subTitle = sub && sub.plan ? sub.plan.title : null;
-  const subPct = sub && sub.usage && sub.usage.percent != null
-    ? sub.usage.percent
-    : (sub && sub.plan ? sub.plan.percent : null);
-  const subReset = sub && sub.usage && sub.usage.resetDate
-    ? sub.usage.resetDate
-    : (sub && sub.plan ? String(sub.plan.nextResetTime || '').slice(0, 10) : null);
-  if (subTitle) {
-    v['sub.title'] = { text: subTitle };
-  }
-  if (subPct != null) {
-    v['sub.percent'] = { text: `${Math.round(subPct)}%`, num: subPct };
-  }
-  if (subReset) {
-    v['sub.resetDate'] = { text: subReset };
-  }
-  return v;
-}
-
-function isRed(id, value, thresholds) {
-  const t = thresholds[id];
-  if (!t || value == null || Number.isNaN(value.num)) return false;
-  if (t.min != null && t.min !== '' && value.num < Number(t.min)) return true;
-  if (t.max != null && t.max !== '' && value.num > Number(t.max)) return true;
-  return false;
-}
+const { FIELDS, computeValues, isRed } = require('./fields');
 
 // ---------- 配置 ----------
 const DEFAULT_CONFIG = {
@@ -127,10 +58,17 @@ function configPath() {
 
 function loadConfig() {
   let raw = {};
-  try {
-    raw = JSON.parse(fs.readFileSync(configPath(), 'utf8'));
-  } catch {
-    /* 首次运行 */
+  const p = configPath();
+  if (fs.existsSync(p)) {
+    try {
+      // 容忍 UTF-8 BOM（外部工具写入），解析失败回退默认并提示而不是静默重置
+      const text = fs.readFileSync(p, 'utf8');
+      // 去掉 UTF-8 BOM（外部工具写入时可能出现）
+      raw = JSON.parse(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
+    } catch (e) {
+      console.warn('[config] config.json 解析失败，使用默认配置:', e.message);
+      raw = {};
+    }
   }
   // 迁移：旧版单一 fields 列表 → 悬浮窗/托盘两份
   const legacyFields = Array.isArray(raw.fields) ? raw.fields : null;
@@ -439,6 +377,10 @@ function openSettings() {
 
 // ---------- IPC ----------
 ipcMain.handle('get-state', () => publicState());
+ipcMain.handle('refresh-now', async () => {
+  await refresh();
+  return { error: errorMsg };
+});
 ipcMain.on('save-config', (_e, next) => {
   config = {
     ...config,

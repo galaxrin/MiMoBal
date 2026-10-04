@@ -2,3 +2,6 @@ node_modules/
 .DS_Store
 boot.log
 boot.err
+pboot.log
+pboot.err
+dist/

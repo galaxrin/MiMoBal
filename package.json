@@ -4,11 +4,41 @@
   "description": "MiMo 余额 / Token Plan 桌面悬浮窗 + 托盘仪表盘",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "dist": "electron-builder --win"
+  },
+  "build": {
+    "appId": "com.galaxrin.mimo-dash",
+    "productName": "mimo-dash",
+    "executableName": "MiMoDash",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "fields.js",
+      "data.js",
+      "preload.js",
+      "float.html",
+      "settings.html",
+      "icon.png",
+      "icon@2x.png",
+      "icon-win.png"
+    ],
+    "win": {
+      "icon": "icon.ico",
+      "artifactName": "MiMoDash-Setup-${version}.exe"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
   },
   "license": "MIT",
   "devDependencies": {
     "electron": "^44.5.0",
-    "ws": "^8.22.0"
+    "electron-builder": "^26.15.3"
   }
 }

@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """MiMo 余额 + Token Plan 桌面悬浮窗。
 
+注意：本文件是 macOS 原型存档，已被 Electron 版（main.js/data.js）取代且未适配 Windows；
+Windows 上凭证读取请参考 data.js 的“Cookie 库 → HTTP 缓存”双路回退实现。
+
 数据源：platform.xiaomimimo.com /api/v1/{balance,tokenPlan/*}
 鉴权：复用 MiMo Desktop xiaomi-account 分区里的 passToken，走小米 serviceLogin 换平台会话。
 

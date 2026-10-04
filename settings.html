@@ -308,7 +308,21 @@
     pill(document.getElementById('launchAtLogin'), !!cfg.launchAtLogin);
     pill(document.getElementById('showFloat'), cfg.float.show !== false);
     document.getElementById('refreshSec').value = String(cfg.refreshSec);
-    document.getElementById('err').textContent = s.error ? '数据错误: ' + s.error : '';
+    const errEl = document.getElementById('err');
+    errEl.innerHTML = '';
+    if (s.error) {
+      errEl.textContent = '数据错误: ' + s.error + ' ';
+      const btn = document.createElement('button');
+      btn.textContent = '重试';
+      btn.style.cssText = 'margin-left:6px;background:#23262d;border:1px solid #2a2e36;'
+        + 'color:#c5c9d0;border-radius:4px;font-size:11px;padding:2px 10px;cursor:pointer';
+      btn.onclick = () => {
+        btn.disabled = true;
+        btn.textContent = '重试中…';
+        api.refreshNow().catch(() => { btn.disabled = false; btn.textContent = '重试'; });
+      };
+      errEl.appendChild(btn);
+    }
   }
 
   document.getElementById('segFloat').onclick = () => { target = 'float'; localStorage.setItem('target', target); render(state); };
