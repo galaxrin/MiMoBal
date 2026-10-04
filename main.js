@@ -408,7 +408,11 @@ ipcMain.on('set-float-size', (_e, w, h) => {
   const height = Math.max(56, Math.min(2000, Math.ceil(h)));
   const cur = floatWin.getBounds();
   if (Math.abs(cur.width - width) <= 1 && Math.abs(cur.height - height) <= 1) return;
+  // Windows 上创建时 resizable:false 的窗口可能忽略程序化尺寸变更，
+  // 先临时放开、改完再收回（视觉无感，用户侧仍不可拖拽）
+  floatWin.setResizable(true);
   floatWin.setBounds({ x: cur.x, y: cur.y, width, height });
+  floatWin.setResizable(false);
 });
 ipcMain.on('copy-text', (_e, t) => {
   if (typeof t === 'string' && t.length < 500) clipboard.writeText(t);

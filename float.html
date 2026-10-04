@@ -32,7 +32,8 @@
     -webkit-app-region: no-drag;
     display: flex; flex-wrap: nowrap; gap: 8px; padding: 4px 10px 2px;
   }
-  .hcell { flex: 1 1 0; min-width: 0; cursor: copy; }
+  /* basis=auto：格子按自身内容取宽，避免 flex-basis:0 平分时值被省略号截断 */
+  .hcell { flex: 1 1 auto; min-width: 0; cursor: copy; }
   .hcell .k { font-size: 9px; color: #6b7078; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .hcell .v {
     font-size: 18px; font-weight: 700; line-height: 1.3;
