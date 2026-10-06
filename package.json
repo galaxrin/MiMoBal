@@ -30,10 +30,17 @@
       "artifactName": "MiMoBal-Setup-${version}.exe"
     },
     "nsis": {
-      "oneClick": true,
+      "oneClick": false,
       "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "shortcutName": "MiMoBal",
+      "installerHeader": "build/installerHeader.bmp",
+      "installerSidebar": "build/installerSidebar.bmp",
+      "installerLanguages": ["zh_CN"],
+      "displayLanguageSelector": false
     }
   },
   "license": "MIT",
