@@ -51,19 +51,23 @@ const rejectedTokens = new Set();
 function credsFromCookieDb(dbPath) {
   if (!fs.existsSync(dbPath)) throw new Error(`cookie db missing: ${dbPath}`);
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mimocookie_'));
-  for (const suffix of ['', '-wal', '-shm']) {
-    const src = dbPath + suffix;
-    if (fs.existsSync(src)) fs.copyFileSync(src, path.join(tmp, path.basename(dbPath) + suffix));
+  try {
+    for (const suffix of ['', '-wal', '-shm']) {
+      const src = dbPath + suffix;
+      if (fs.existsSync(src)) fs.copyFileSync(src, path.join(tmp, path.basename(dbPath) + suffix));
+    }
+    const db = new DatabaseSync(path.join(tmp, path.basename(dbPath)));
+    const rows = db.prepare('select name, value from cookies').all();
+    db.close();
+    const map = Object.fromEntries(rows.map((r) => [r.name, r.value]));
+    if (!map.passToken || !map.userId) {
+      throw new Error('cookie db 里没有 passToken/userId');
+    }
+    return map;
+  } finally {
+    // 库损坏/被锁时也要清掉临时副本，避免 %TEMP% 堆积
+    fs.rmSync(tmp, { recursive: true, force: true });
   }
-  const db = new DatabaseSync(path.join(tmp, path.basename(dbPath)));
-  const rows = db.prepare('select name, value from cookies').all();
-  db.close();
-  fs.rmSync(tmp, { recursive: true, force: true });
-  const map = Object.fromEntries(rows.map((r) => [r.name, r.value]));
-  if (!map.passToken || !map.userId) {
-    throw new Error('cookie db 里没有 passToken/userId');
-  }
-  return map;
 }
 
 // 从含 passToken 的字节流里解析出完整 JSON 对象（大括号配对，跳过字符串内部）
@@ -195,8 +199,8 @@ async function readPassToken() {
   const usable = cands.filter((c) => !rejectedTokens.has(c.passToken));
   if (usable.length) return usable[0];
   if (cands.length) {
-    // 候选都在，但全被服务端拒过 —— 该换登录态了
-    throw new Error('缓存中的凭证已被服务端拒绝，请在 MiMo Desktop 重新登录后再试');
+    // 候选都在，但全被服务端拒过/已过期 —— 该换登录态了
+    throw new Error('登录凭证已失效，请在 MiMo Desktop 重新登录');
   }
   const winHint = process.platform === 'win32' && hadLocks
     ? '；若已登录，可能是凭证文件暂时被占用，刷新时会自动重试'
@@ -234,6 +238,8 @@ class Session {
       method,
       headers: { 'User-Agent': UA, Cookie: this.cookieHeader(), ...headers },
       redirect,
+      // 单请求超时：挂起的连接会卡住整轮刷新（主进程刷新依赖本 promise 结束）
+      signal: AbortSignal.timeout(15000),
     });
     const setCookies = typeof resp.headers.getSetCookie === 'function'
       ? resp.headers.getSetCookie()
@@ -269,7 +275,8 @@ class Session {
           credErr = e;
           continue;
         }
-        throw e;
+        // 后续候选已全部拉黑时 readPassToken 会抛笼统错误，保留更具体的首次登录失败原因
+        throw credErr || e;
       }
     }
     throw credErr || new Error('凭证重试次数已用尽');
@@ -285,7 +292,15 @@ class Session {
     const body = await resp.text();
     const payload = JSON.parse(body.split('&&&START&&&').pop());
     if (payload.code !== 0 || !payload.location) {
-      const err = new Error(`小米登录失败: ${payload.desc || payload.description || payload.code}`);
+      // 70016/「登录验证失败」多为缓存里 passToken 已过期（Windows 上 Cookie 库被占用时
+      // 只能读到缓存旧凭证），提示重登比笼统的「被拒绝」更可操作
+      const desc = String(payload.desc || payload.description || '');
+      const expired = payload.code === 70016 || desc.includes('验证') || desc.includes('过期');
+      const err = new Error(
+        expired
+          ? '登录凭证已失效，请在 MiMo Desktop 重新登录'
+          : `小米登录失败: ${desc || payload.code}`
+      );
       err.credRejected = true; // 服务端明确拒绝这枚凭证 → 拉黑，外层换下一枚
       throw err;
     }
@@ -340,7 +355,7 @@ function subReq(cookies, url, { sendAccount = true, redirect = 'manual' } = {}) 
   if (sendAccount) {
     headers.Cookie = [...cookies].map(([k, v]) => `${k}=${v}`).join('; ');
   }
-  return fetch(url, { headers, redirect }).then((resp) => {
+  return fetch(url, { headers, redirect, signal: AbortSignal.timeout(15000) }).then((resp) => {
     mergeCookies(cookies, resp);
     return resp;
   });

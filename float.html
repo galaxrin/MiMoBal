@@ -8,14 +8,21 @@
   :root { --accent: #4c8dff; }
   body {
     font-family: "PingFang SC", "Microsoft YaHei", "Segoe UI", -apple-system, sans-serif;
-    background: rgba(22, 24, 29, 0.96);
+    /* 背景/圆角/边框放在 #card 上：body 背景会传播到视口画布（方形快速路径），
+       border-radius 在该路径上不生效，圆角会时有时无 */
+    background: transparent;
     color: #e8eaed;
-    border-radius: 12px;
-    border: 1px solid #2a2e36;
-    overflow-y: auto;
-    overflow-x: hidden;
+    overflow: hidden;
   }
-  body.alarm { border-color: #e06c75; }
+  #card {
+    min-height: 100%;
+    width: 100%;
+    background: rgba(22, 24, 29, 0.96);
+    border: 1px solid #2a2e36;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  body.alarm #card { border-color: #e06c75; }
   body::-webkit-scrollbar { width: 0; height: 0; }
   body[data-density="compact"] .row { padding: 2px 0; }
   body[data-density="compact"] .hcell .v { font-size: 15px; }
@@ -42,9 +49,6 @@
   }
   .hcell .v.red { color: #e06c75; }
 
-  #sparkWrap { margin: 4px 10px 0; }
-  #spark { display: block; width: 100%; height: 28px; }
-
   #toggle {
     text-align: center; font-size: 9px; color: #6b7078;
     padding: 1px 0 5px; cursor: pointer;
@@ -63,31 +67,32 @@
   }
   .row .v.red { color: #e06c75; }
 
-  .err { color: #e06c75; font-size: 10px; padding: 6px 0; }
+  .err { padding: 8px 0 6px; max-width: 240px; }
+  .err-main { color: #e06c75; font-size: 11px; font-weight: 600; margin-bottom: 2px; }
+  .err-sub { color: #8b919a; font-size: 10px; line-height: 1.45; margin-bottom: 6px; word-break: break-word; }
   .err button {
-    margin-left: 6px; background: #23262d; border: 1px solid #2a2e36;
-    color: #c5c9d0; border-radius: 4px; font-size: 10px; padding: 1px 8px; cursor: pointer;
+    background: #23262d; border: 1px solid #2a2e36;
+    color: #c5c9d0; border-radius: 4px; font-size: 10px; padding: 2px 10px; cursor: pointer;
   }
   .err button:hover { background: #2f3440; }
-  .empty { color: #6b7078; font-size: 10px; padding: 6px 0; }
+  .empty { color: #6b7078; font-size: 10px; padding: 8px 0; }
 </style>
 </head>
 <body>
-  <header>
-    <b>MiMo</b><span id="hdrWarn" style="display:none;color:#e06c75;margin-left:4px">⚠</span>
-  </header>
-  <div id="hero"></div>
-  <div id="sparkWrap"><canvas id="spark"></canvas></div>
-  <div id="toggle"></div>
-  <div id="list"></div>
+  <div id="card">
+    <header>
+      <b>MiMo</b><span id="hdrWarn" style="display:none;color:#e06c75;margin-left:4px">⚠</span>
+    </header>
+    <div id="hero"></div>
+    <div id="toggle"></div>
+    <div id="list"></div>
+  </div>
 <script>
   const heroEl = document.getElementById('hero');
   const listEl = document.getElementById('list');
   const toggleEl = document.getElementById('toggle');
   const titleEl = document.querySelector('header b');
-  const sparkEl = document.getElementById('spark');
   let entries = [];
-  let history = [];
   let cfg = null;
   let error = '';
   let expanded = localStorage.getItem('expanded') === '1';
@@ -108,7 +113,8 @@
 
   function applyLook() {
     const f = (cfg && cfg.float) || {};
-    document.body.style.background = `rgba(22, 24, 29, ${f.opacity ?? 0.96})`;
+    document.getElementById('card').style.background =
+      `rgba(22, 24, 29, ${f.opacity ?? 0.96})`;
     document.body.dataset.density = f.density === 'compact' ? 'compact' : 'std';
     document.body.classList.toggle('alarm', entries.some((e) => e.red));
   }
@@ -127,49 +133,13 @@
     return picked;
   }
 
-  function drawSpark() {
-    const mode = (cfg && cfg.float && cfg.float.mode) || 'full';
-    const show = mode === 'full' && history.length >= 2;
-    document.getElementById('sparkWrap').style.display = show ? '' : 'none';
-    if (!show) return;
-    const dpr = 2;
-    const W = Math.max(80, Math.round(sparkEl.clientWidth) || 210);
-    const H = 28;
-    sparkEl.width = W * dpr;
-    sparkEl.height = H * dpr;
-    const ctx = sparkEl.getContext('2d');
-    ctx.scale(dpr, dpr);
-    const vals = history.map((p) => p.v);
-    const min = Math.min(...vals), max = Math.max(...vals);
-    const span = max - min || 1;
-    const pad = 4;
-    const pts = history.map((p, i) => [
-      pad + (i * (W - pad * 2)) / (history.length - 1),
-      H - pad - ((p.v - min) / span) * (H - pad * 2),
-    ]);
-    const accent = '#4c8dff';
-    ctx.clearRect(0, 0, W, H);
-    ctx.strokeStyle = accent;
-    ctx.lineWidth = 1.5;
-    ctx.lineJoin = 'round';
-    ctx.beginPath();
-    pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
-    ctx.stroke();
-    const [lx, ly] = pts[pts.length - 1];
-    ctx.fillStyle = accent;
-    ctx.beginPath();
-    ctx.arc(lx, ly, 2.5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#6b7078';
-    ctx.font = '8px "PingFang SC", "Microsoft YaHei"';
-    ctx.fillText(`7日 ${vals[0].toFixed(2)} → ${vals[vals.length - 1].toFixed(2)}`, pad, 8);
-  }
-
+  let copyTimer = null;
   function copyText(t) {
     api.copyText(t);
     titleEl.textContent = '已复制 ✓';
     titleEl.style.color = '#4c8dff';
-    setTimeout(() => {
+    clearTimeout(copyTimer); // 连续点击：旧计时器不能提前把标题改回去
+    copyTimer = setTimeout(() => {
       titleEl.textContent = 'MiMo';
       titleEl.style.color = '';
     }, 900);
@@ -187,9 +157,17 @@
     listEl.style.display = mini ? 'none' : '';
 
     if (error && !entries.length) {
+      const cred = /凭证|登录|passToken|EXPIRED|70016/.test(error);
       const errDiv = document.createElement('div');
       errDiv.className = 'err';
-      errDiv.textContent = `⚠ ${error} `;
+      const main = document.createElement('div');
+      main.className = 'err-main';
+      main.textContent = cred ? '⚠ 登录凭证已失效' : '⚠ 数据获取失败';
+      const sub = document.createElement('div');
+      sub.className = 'err-sub';
+      sub.textContent = cred
+        ? '请在 MiMo Desktop 重新登录后，点「重试」刷新'
+        : error;
       const btn = document.createElement('button');
       btn.textContent = '重试';
       btn.onclick = (e) => {
@@ -198,15 +176,13 @@
         btn.textContent = '重试中…';
         api.refreshNow().catch(() => { btn.disabled = false; btn.textContent = '重试'; });
       };
-      errDiv.appendChild(btn);
+      errDiv.append(main, sub, btn);
       heroEl.appendChild(errDiv);
       toggleEl.textContent = '';
-      document.getElementById('sparkWrap').style.display = 'none';
       return;
     }
     if (!entries.length) {
-      heroEl.innerHTML = '<div class="empty">未勾选字段，点 ⚙ 设置</div>';
-      document.getElementById('sparkWrap').style.display = 'none';
+      heroEl.innerHTML = '<div class="empty">未勾选字段 · 点 ⚙ 设置</div>';
       return;
     }
 
@@ -222,8 +198,6 @@
       cell.onclick = () => copyText(e.text);
       heroEl.appendChild(cell);
     }
-
-    drawSpark();
 
     if (!mini) {
       toggleEl.textContent = expanded ? '▴ 收起' : `▾ 全部 ${entries.length} 项`;
@@ -249,9 +223,6 @@
     fitWindow();
   }
 
-  // 窗口尺寸变化后按新宽度重绘 sparkline
-  window.addEventListener('resize', () => drawSpark());
-
   toggleEl.onclick = (e) => {
     e.stopPropagation();
     expanded = !expanded;
@@ -261,7 +232,6 @@
 
   function onState(s) {
     entries = s.entries;
-    history = s.history || [];
     cfg = s.config;
     error = s.error || '';
     render();

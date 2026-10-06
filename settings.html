@@ -80,7 +80,14 @@
   .pct { width: 38px; text-align: right; color: #8b919a; font-size: 11px; }
   select { max-width: 104px; }
 
-  .err { color: #e06c75; font-size: 12px; margin-top: 8px; }
+  .err { margin-top: 12px; }
+  .err-title { color: #e06c75; font-size: 12px; font-weight: 600; margin-bottom: 2px; }
+  .err-detail { color: #8b919a; font-size: 11px; margin-bottom: 6px; word-break: break-word; }
+  .err button {
+    background: #23262d; border: 1px solid #2a2e36;
+    color: #c5c9d0; border-radius: 4px; font-size: 11px; padding: 2px 10px; cursor: pointer;
+  }
+  .err button:hover { background: #2f3440; }
 </style>
 </head>
 <body>
@@ -151,10 +158,15 @@
   const CATS = ['余额', 'Token Plan', '桌面端订阅'];
   const catOpen = (c) => localStorage.getItem('cat:' + c) === '1';
 
-  // 所有改动防抖后立即落盘生效（无需保存按钮）
+  // 所有改动防抖后立即落盘生效（无需保存按钮）。
+  // 捕获 config 引用：即使防抖窗口内 state 被广播替换，落盘的仍是已编辑的这份
   function scheduleSave() {
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => api.saveConfig(state.config), 250);
+    const cfg = state.config;
+    saveTimer = setTimeout(() => {
+      saveTimer = null;
+      api.saveConfig(cfg);
+    }, 250);
   }
 
   const activeList = () =>
@@ -228,10 +240,14 @@
           <span class="pill"></span>`;
         row.querySelector('.lbl').textContent = m.label;
         const thr = row.querySelector('.thr');
+        // 配置可被手改：只接受有限数值再回填，防止字符串注入进 value 插值
+        const clean = (v) => (v != null && v !== '' && Number.isFinite(Number(v))) ? Number(v) : '';
+        const minV = clean(th.min);
+        const maxV = clean(th.max);
         if (m.min) thr.insertAdjacentHTML('beforeend',
-          `低于 <input type="number" class="min" value="${th.min ?? ''}" placeholder="—"> `);
+          `低于 <input type="number" class="min" value="${minV}" placeholder="—"> `);
         if (m.max) thr.insertAdjacentHTML('beforeend',
-          `高于 <input type="number" class="max" value="${th.max ?? ''}" placeholder="—">`);
+          `高于 <input type="number" class="max" value="${maxV}" placeholder="—">`);
         if (!m.min && !m.max) thr.textContent = '—';
 
         const p = row.querySelector('.pill');
@@ -257,6 +273,7 @@
   }
 
   function render(s) {
+    if (!s) return; // 初始 getState 未返回前，seg/折叠按钮可能提前触发 render(state)
     state = s;
     const cfg = s.config;
     // 分段控件
@@ -307,21 +324,38 @@
     pill(document.getElementById('trayTitle'), cfg.tray.showTitle);
     pill(document.getElementById('launchAtLogin'), !!cfg.launchAtLogin);
     pill(document.getElementById('showFloat'), cfg.float.show !== false);
-    document.getElementById('refreshSec').value = String(cfg.refreshSec);
+    const rsSel = document.getElementById('refreshSec');
+    rsSel.value = String(cfg.refreshSec);
+    if (rsSel.value !== String(cfg.refreshSec)) {
+      // 手改出的非预设间隔：补一个临时选项，避免下拉显示空白
+      if (![...rsSel.options].some((o) => o.value === String(cfg.refreshSec))) {
+        const o = document.createElement('option');
+        o.value = String(cfg.refreshSec);
+        o.textContent = cfg.refreshSec + ' 秒';
+        rsSel.appendChild(o);
+      }
+      rsSel.value = String(cfg.refreshSec);
+    }
     const errEl = document.getElementById('err');
     errEl.innerHTML = '';
     if (s.error) {
-      errEl.textContent = '数据错误: ' + s.error + ' ';
+      const cred = /凭证|登录|passToken|EXPIRED|70016/.test(s.error);
+      const title = document.createElement('div');
+      title.className = 'err-title';
+      title.textContent = cred ? '登录凭证已失效' : '数据获取失败';
+      const detail = document.createElement('div');
+      detail.className = 'err-detail';
+      detail.textContent = cred
+        ? '请在 MiMo Desktop 退出并重新登录，然后点「重试」'
+        : s.error;
       const btn = document.createElement('button');
       btn.textContent = '重试';
-      btn.style.cssText = 'margin-left:6px;background:#23262d;border:1px solid #2a2e36;'
-        + 'color:#c5c9d0;border-radius:4px;font-size:11px;padding:2px 10px;cursor:pointer';
       btn.onclick = () => {
         btn.disabled = true;
         btn.textContent = '重试中…';
         api.refreshNow().catch(() => { btn.disabled = false; btn.textContent = '重试'; });
       };
-      errEl.appendChild(btn);
+      errEl.append(title, detail, btn);
     }
   }
 
@@ -366,7 +400,8 @@
     () => state.config.float.show !== false,
     (v) => { state.config.float.show = v; });
 
-  api.onState(render);
+  // 本地有未落盘的编辑（防抖中）时忽略广播：避免控件被旧状态回跳、pending 保存被覆盖
+  api.onState((s) => { if (saveTimer) return; render(s); });
   api.getState().then(render);
 </script>
 </body>

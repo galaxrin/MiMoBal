@@ -70,13 +70,20 @@ function loadConfig() {
       raw = {};
     }
   }
+  // 手改 config.json 可能写入非法值（NaN/字符串）：这里收敛，避免 setInterval(NaN) 轮询风暴等
+  const rs = Number(raw.refreshSec);
+  const refreshSec = Number.isFinite(rs)
+    ? Math.min(86400, Math.max(10, Math.round(rs)))
+    : DEFAULT_CONFIG.refreshSec;
+  const op = Number(raw.float && raw.float.opacity);
+  const opacity = Number.isFinite(op) ? Math.min(1, Math.max(0.3, op)) : DEFAULT_CONFIG.float.opacity;
   // 迁移：旧版单一 fields 列表 → 悬浮窗/托盘两份
   const legacyFields = Array.isArray(raw.fields) ? raw.fields : null;
   return {
     ...DEFAULT_CONFIG,
     ...raw,
     fields: undefined, // 旧键废弃，不再持久化
-    refreshSec: raw.refreshSec ?? DEFAULT_CONFIG.refreshSec,
+    refreshSec,
     launchAtLogin: raw.launchAtLogin ?? false,
     thresholds: raw.thresholds || {},
     tray: {
@@ -89,6 +96,7 @@ function loadConfig() {
     float: {
       ...DEFAULT_CONFIG.float,
       ...(raw.float || {}),
+      opacity,
       fields: mergeFieldList(
         (raw.float && raw.float.fields) || legacyFields || DEFAULT_CONFIG.float.fields
       ),
@@ -103,31 +111,6 @@ function saveConfig() {
   fs.writeFileSync(configPath(), JSON.stringify(config, null, 2));
 }
 let appQuitting = false;
-
-// ---------- 余额历史（本地，供 sparkline） ----------
-const historyPath = () => path.join(app.getPath('userData'), 'history.json');
-let balanceHistory = {}; // { 'YYYY-MM-DD': number }
-try {
-  balanceHistory = JSON.parse(fs.readFileSync(historyPath(), 'utf8'));
-} catch {}
-
-function recordHistory(balanceStr) {
-  const v = parseFloat(balanceStr);
-  if (Number.isNaN(v)) return;
-  const day = new Date().toISOString().slice(0, 10);
-  if (balanceHistory[day] === v) return;
-  balanceHistory[day] = v;
-  const days = Object.keys(balanceHistory).sort();
-  while (days.length > 30) delete balanceHistory[days.shift()];
-  fs.writeFileSync(historyPath(), JSON.stringify(balanceHistory));
-}
-
-function history7() {
-  return Object.entries(balanceHistory)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .slice(-7)
-    .map(([d, v]) => ({ d, v }));
-}
 
 // ---------- 阈值告警（新变红 → 系统通知，30 分钟限频） ----------
 const prevRed = new Set();
@@ -183,7 +166,6 @@ function publicState() {
   return {
     entries: orderedEntries('float'),
     trayEntries: orderedEntries('tray'),
-    history: history7(),
     error: errorMsg,
     ts: data ? data.ts : 0,
     config,
@@ -198,16 +180,36 @@ function broadcast() {
   updateTray();
 }
 
-async function refresh() {
-  try {
-    data = await snapshot();
-    errorMsg = null;
-    if (data.balance) recordHistory(data.balance.balance);
-    checkThresholdAlerts();
-  } catch (e) {
-    errorMsg = String(e && e.message ? e.message : e);
+// 凭证过期/被拒后暂停登录重试（手动「重试」可立即放行），避免每 30 秒打爆登录接口加剧风控
+let authFailUntil = 0;
+const AUTH_BACKOFF_MS = 5 * 60 * 1000;
+function authLooksFailed(msg) {
+  return /凭证|登录验证|passToken|EXPIRED|70016/.test(msg || '');
+}
+
+// 同一时刻只跑一轮刷新：慢网络下定时器/手动重试都复用进行中的请求
+let refreshPromise = null;
+function refresh({ force = false } = {}) {
+  if (refreshPromise) return refreshPromise;
+  if (!force && Date.now() < authFailUntil && authLooksFailed(errorMsg)) {
+    broadcast();
+    return Promise.resolve();
   }
-  broadcast();
+  refreshPromise = (async () => {
+    try {
+      data = await snapshot();
+      errorMsg = null;
+      authFailUntil = 0;
+      checkThresholdAlerts();
+    } catch (e) {
+      errorMsg = String(e && e.message ? e.message : e);
+      if (authLooksFailed(errorMsg)) authFailUntil = Date.now() + AUTH_BACKOFF_MS;
+    }
+    broadcast();
+  })().finally(() => {
+    refreshPromise = null;
+  });
+  return refreshPromise;
 }
 
 function startTimer() {
@@ -264,8 +266,8 @@ function createTray() {
   tray = new Tray(img);
   tray.setToolTip('MiMo 仪表盘');
   if (process.platform === 'win32') {
-    // Windows 惯例：左键点托盘图标 = 显示/隐藏悬浮窗（右键出菜单）
-    tray.on('click', toggleFloat);
+    // Windows：左键点托盘 = 打开设置（悬浮窗显隐只在设置里控制，托盘不再切换）
+    tray.on('click', openSettings);
   }
   updateTray();
 }
@@ -276,6 +278,11 @@ function hookRenderer(win, tag) {
   });
   win.webContents.on('render-process-gone', (_e, details) => {
     console.error(`[${tag}] render gone: ${JSON.stringify(details)}`);
+  });
+  win.webContents.on('console-message', (details) => {
+    if (details && details.level === 'error') {
+      console.error(`[${tag}] ${details.message} (${details.sourceId}:${details.lineNumber})`);
+    }
   });
 }
 
@@ -312,7 +319,11 @@ function toggleFloat() {
     width: 120,
     height: 70,
     frame: false,
-    transparent: true,
+    // Win11：透明窗逐像素 alpha 在此环境不可靠（四角残留半透明灰）；
+    // 改用不透明底色 + WS_THICKFRAME（thickFrame 默认 true），由 DWM 对窗口切原生圆角。
+    // 底色用纯黑：卡片是 rgba 底，透明度滑条靠与底色的差值才能看出变化
+    transparent: false,
+    backgroundColor: '#000000',
     resizable: false, // 尺寸跟数据走，不许手拉
     alwaysOnTop: true,
     skipTaskbar: true,
@@ -325,6 +336,12 @@ function toggleFloat() {
   floatWin = new BrowserWindow(opts);
   floatWin.loadFile('float.html');
   hookRenderer(floatWin, 'float');
+  // 打开时写入记忆（与关窗对称）；设置胶囊打开时 show 已为 true，此处为兜底
+  if (!config.float.show) {
+    config.float.show = true;
+    saveConfig();
+    if (settingsWin && !settingsWin.isDestroyed()) broadcast();
+  }
   let moveTimer = null;
   const persistPos = () => {
     clearTimeout(moveTimer);
@@ -341,7 +358,7 @@ function toggleFloat() {
   });
   floatWin.on('closed', () => {
     floatWin = null;
-    // 用户点 × 关窗才持久化为「下次不弹」；退出应用不算
+    // 程序化关闭（设置胶囊关掉悬浮窗等）时同步记忆；退出应用不算
     if (!appQuitting && config.float.show) {
       config.float.show = false;
       saveConfig();
@@ -378,14 +395,17 @@ function openSettings() {
 // ---------- IPC ----------
 ipcMain.handle('get-state', () => publicState());
 ipcMain.handle('refresh-now', async () => {
-  await refresh();
+  authFailUntil = 0; // 用户手动重试 = 明确放行登录（例如刚在 MiMo Desktop 重新登录）
+  await refresh({ force: true });
   return { error: errorMsg };
 });
 ipcMain.on('save-config', (_e, next) => {
   config = {
     ...config,
     ...next,
-    float: { ...config.float, ...(next.float || {}) },
+    // bounds 只由主进程在窗口移动时写入：渲染端（设置窗）持有的可能是过期快照，
+    // 直接采纳会把刚拖到位的悬浮窗重置回旧位置
+    float: { ...config.float, ...(next.float || {}), bounds: config.float.bounds },
     tray: { ...config.tray, ...(next.tray || {}) },
   };
   saveConfig();
