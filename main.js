@@ -10,7 +10,7 @@ const { snapshot } = require('./data');
 
 // Windows：通知/任务栏归属需要稳定的 AppUserModelID（须在 ready 前设置）
 if (process.platform === 'win32') {
-  app.setAppUserModelId('com.galaxrin.mimo-dash');
+  app.setAppUserModelId('com.galaxrin.mimobal');
 }
 
 const { FIELDS, computeValues, isRed } = require('./fields');
@@ -106,6 +106,25 @@ function loadConfig() {
   };
 }
 
+// 改名迁移：userData 目录随 productName 变化（mimo-dash → MiMoBal），
+// 首次启动把旧配置搬过来，避免开关/字段设置丢失
+(function migrateOldUserData() {
+  try {
+    const oldDir = path.join(app.getPath('appData'), 'mimo-dash');
+    const newDir = app.getPath('userData');
+    if (path.resolve(oldDir) === path.resolve(newDir)) return;
+    const src = path.join(oldDir, 'config.json');
+    const dst = path.join(newDir, 'config.json');
+    if (fs.existsSync(src) && !fs.existsSync(dst)) {
+      fs.mkdirSync(newDir, { recursive: true });
+      fs.copyFileSync(src, dst);
+      console.log('[migrate] 旧配置已迁移到', dst);
+    }
+  } catch (e) {
+    console.warn('[migrate] 旧配置迁移失败:', e.message);
+  }
+})();
+
 let config = loadConfig();
 function saveConfig() {
   fs.writeFileSync(configPath(), JSON.stringify(config, null, 2));
@@ -129,7 +148,7 @@ function checkThresholdAlerts() {
         const label = (FIELDS.find((m) => m.id === id) || {}).label || id;
         console.log(`[alert] ${label} -> ${values[id] ? values[id].text : '?'}`);
         new Notification({
-          title: `MiMo 仪表盘 · ${label}触发阈值`,
+          title: `MiMoBal · ${label}触发阈值`,
           body: `当前 ${values[id] ? values[id].text : '—'}，请关注`,
         }).show();
       }
@@ -231,7 +250,7 @@ function updateTray() {
     tray.setTitle(summary ? ` ${summary}` : '');
   }
   // 悬停 tooltip：各平台都带上摘要，Windows 上这是主要的“扫一眼”入口
-  const tip = summary ? `MiMo 仪表盘 · ${summary}` : 'MiMo 仪表盘';
+  const tip = summary ? `MiMoBal · ${summary}` : 'MiMoBal';
   tray.setToolTip(tip.length > 120 ? `${tip.slice(0, 119)}…` : tip);
   // 下拉：设置 + 退出；Windows 额外把已勾选字段列成菜单项（替代托盘文字）
   const entries = process.platform !== 'darwin' && summary
@@ -264,7 +283,7 @@ function createTray() {
     img.setTemplateImage(true);
   }
   tray = new Tray(img);
-  tray.setToolTip('MiMo 仪表盘');
+  tray.setToolTip('MiMoBal');
   if (process.platform === 'win32') {
     // Windows：左键点托盘 = 打开设置（悬浮窗显隐只在设置里控制，托盘不再切换）
     tray.on('click', openSettings);
@@ -314,6 +333,7 @@ function toggleFloat() {
     return;
   }
   const opts = {
+    title: 'MiMoBal',
     minWidth: 90,   // 尽量贴内容，避免多余留白
     minHeight: 56,
     width: 120,
@@ -379,7 +399,7 @@ function openSettings() {
   settingsWin = new BrowserWindow({
     width: 460,
     height: 620,
-    title: 'MiMo 仪表盘设置',
+    title: 'MiMoBal 设置',
     webPreferences: { preload: path.join(__dirname, 'preload.js') },
   });
   settingsWin.loadFile('settings.html');

@@ -1,4 +1,4 @@
-# MiMoBal（mimo-dash）
+# MiMoBal
 
 MiMo 余额 / Token Plan 桌面小工具。托盘常驻，悬浮窗让你一眼看到余额和用量，不用打开网页。
 
@@ -13,7 +13,7 @@ MiMo 余额 / Token Plan 桌面小工具。托盘常驻，悬浮窗让你一眼�
 ## 安装使用
 
 1. 确保电脑上已安装并登录 [MiMo Desktop](https://mimo.xiaomi.com)
-2. 到 [Releases](https://github.com/galaxrin/MiMoBal/releases) 下载最新的 `MiMoDash-Setup-*.exe`，双击安装
+2. 到 [Releases](https://github.com/galaxrin/MiMoBal/releases) 下载最新的 `MiMoBal-Setup-*.exe`，双击安装
 3. 启动后在系统托盘找到 MiMo 图标即可
 
 **常用操作**

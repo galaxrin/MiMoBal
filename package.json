@@ -1,5 +1,5 @@
 {
-  "name": "mimo-dash",
+  "name": "mimobal",
   "version": "0.1.0",
   "description": "MiMo 余额 / Token Plan 桌面悬浮窗 + 托盘仪表盘",
   "main": "main.js",
@@ -8,9 +8,9 @@
     "dist": "electron-builder --win"
   },
   "build": {
-    "appId": "com.galaxrin.mimo-dash",
-    "productName": "mimo-dash",
-    "executableName": "MiMoDash",
+    "appId": "com.galaxrin.mimobal",
+    "productName": "MiMoBal",
+    "executableName": "MiMoBal",
     "directories": {
       "output": "dist"
     },
@@ -27,7 +27,7 @@
     ],
     "win": {
       "icon": "icon.ico",
-      "artifactName": "MiMoDash-Setup-${version}.exe"
+      "artifactName": "MiMoBal-Setup-${version}.exe"
     },
     "nsis": {
       "oneClick": true,
