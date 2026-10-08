@@ -44,12 +44,23 @@ const DEFAULT_CONFIG = {
 };
 
 function mergeFieldList(list) {
-  const arr = Array.isArray(list) ? list.map((f) => ({ ...f })) : [];
-  const known = new Set(arr.map((f) => f.id));
-  for (const m of FIELDS) {
-    if (!known.has(m.id)) arr.push({ id: m.id, on: false });
+  const arr = [];
+  const known = new Set();
+  if (Array.isArray(list)) {
+    for (const f of list) {
+      if (f && typeof f.id === 'string' && !known.has(f.id) && FIELDS.some((m) => m.id === f.id)) {
+        known.add(f.id);
+        arr.push({ id: f.id, on: !!f.on });
+      }
+    }
   }
-  return arr.filter((f) => FIELDS.some((m) => m.id === f.id));
+  for (const m of FIELDS) {
+    if (!known.has(m.id)) {
+      known.add(m.id);
+      arr.push({ id: m.id, on: false });
+    }
+  }
+  return arr;
 }
 
 function configPath() {
@@ -100,6 +111,9 @@ function loadConfig() {
       fields: mergeFieldList(
         (raw.float && raw.float.fields) || legacyFields || DEFAULT_CONFIG.float.fields
       ),
+      heroIds: (raw.float && Array.isArray(raw.float.heroIds) && raw.float.heroIds.length)
+        ? raw.float.heroIds.slice(0, 2).map((x) => (typeof x === 'string' && x) || null)
+        : DEFAULT_CONFIG.float.heroIds,
       scale: undefined, // 弃用：改窗口拉伸，缩放记忆走 bounds
       accent: undefined, // 弃用：主题色选项移除，固定默认色
     },
@@ -126,8 +140,24 @@ function loadConfig() {
 })();
 
 let config = loadConfig();
+
+// 双端托盘常驻：防止重复启动多开（第二实例聚焦设置）
+const isPrimary = app.requestSingleInstanceLock();
+if (!isPrimary) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (settingsWin && !settingsWin.isDestroyed()) settingsWin.focus();
+    else openSettings();
+  });
+}
+
 function saveConfig() {
-  fs.writeFileSync(configPath(), JSON.stringify(config, null, 2));
+  try {
+    fs.writeFileSync(configPath(), JSON.stringify(config, null, 2));
+  } catch (e) {
+    console.error('[config] save failed:', e.message);
+  }
 }
 let appQuitting = false;
 
@@ -200,10 +230,11 @@ function broadcast() {
 }
 
 // 凭证过期/被拒后暂停登录重试（手动「重试」可立即放行），避免每 30 秒打爆登录接口加剧风控
+// 只对「服务端拒绝/已失效」退避；「未找到 passToken」应允许用户登录后立刻自动重试
 let authFailUntil = 0;
 const AUTH_BACKOFF_MS = 5 * 60 * 1000;
 function authLooksFailed(msg) {
-  return /凭证|登录验证|passToken|EXPIRED|70016/.test(msg || '');
+  return /凭证已失效|登录验证失败|凭证重试次数已用尽|EXPIRED|70016/.test(msg || '');
 }
 
 // 同一时刻只跑一轮刷新：慢网络下定时器/手动重试都复用进行中的请求
@@ -247,7 +278,9 @@ function updateTray() {
   const summary = config.tray.showTitle ? traySummary() : '';
   // 菜单栏文字摘要只在 macOS 有对应物；Windows 托盘没有文字位
   if (process.platform === 'darwin') {
-    tray.setTitle(summary ? ` ${summary}` : '');
+    // 菜单栏空间有限：过长摘要截断，避免挤掉时钟
+    const max = 72;
+    tray.setTitle(summary ? ` ${summary.slice(0, max)}` : '');
   }
   // 悬停 tooltip：各平台都带上摘要，Windows 上这是主要的“扫一眼”入口
   const tip = summary ? `MiMoBal · ${summary}` : 'MiMoBal';
@@ -256,9 +289,20 @@ function updateTray() {
   const entries = process.platform !== 'darwin' && summary
     ? orderedEntries('tray').map((e) => ({ label: `${e.label}  ${e.text}`, enabled: false }))
     : [];
+  const floatOn = !!(floatWin && !floatWin.isDestroyed());
   tray.setContextMenu(Menu.buildFromTemplate([
     ...entries,
     ...(entries.length ? [{ type: 'separator' }] : []),
+    {
+      label: floatOn ? '隐藏悬浮窗' : '显示悬浮窗',
+      click: () => {
+        config.float.show = !floatOn;
+        saveConfig();
+        if (config.float.show) toggleFloat();
+        else if (floatWin && !floatWin.isDestroyed()) floatWin.close();
+        broadcast();
+      },
+    },
     { label: '设置', click: openSettings },
     { type: 'separator' },
     { label: '退出', click: () => app.quit() },
@@ -272,7 +316,7 @@ function createTray() {
     img = nativeImage.createFromPath(path.join(__dirname, 'icon-win.png'));
     if (!img || img.isEmpty()) img = nativeImage.createFromPath(path.join(__dirname, 'icon.png'));
   } else {
-    // 18pt 逻辑尺寸；@2x 以 scaleFactor 挂载，Retina 清晰
+    // 逻辑尺寸；@2x 以 scaleFactor 挂载，Retina 清晰
     try {
       const buf = fs.readFileSync(path.join(__dirname, 'icon@2x.png'));
       img = nativeImage.createFromBuffer(buf, { scaleFactor: 2.0 });
@@ -285,7 +329,7 @@ function createTray() {
   tray = new Tray(img);
   tray.setToolTip('MiMoBal');
   if (process.platform === 'win32') {
-    // Windows：左键点托盘 = 打开设置（悬浮窗显隐只在设置里控制，托盘不再切换）
+    // Windows：左键点托盘 = 打开设置（悬浮窗显隐在托盘菜单里切换）
     tray.on('click', openSettings);
   }
   updateTray();
@@ -339,10 +383,9 @@ function toggleFloat() {
     width: 120,
     height: 70,
     frame: false,
-    // Win11：透明窗逐像素 alpha 在此环境不可靠（四角残留半透明灰）；
-    // 改用不透明底色 + WS_THICKFRAME（thickFrame 默认 true），由 DWM 对窗口切原生圆角。
-    // 底色用纯黑：卡片是 rgba 底，透明度滑条靠与底色的差值才能看出变化
-    transparent: false,
+    // Win11 透明窗角部残影：保持不透明 + DWM 原生圆角。
+    // macOS 真透明，透明度滑条才有「透出桌面」效果。
+    transparent: process.platform !== 'win32',
     backgroundColor: '#000000',
     resizable: false, // 尺寸跟数据走，不许手拉
     alwaysOnTop: true,
@@ -448,10 +491,15 @@ ipcMain.on('set-float-size', (_e, w, h) => {
   const height = Math.max(56, Math.min(2000, Math.ceil(h)));
   const cur = floatWin.getBounds();
   if (Math.abs(cur.width - width) <= 1 && Math.abs(cur.height - height) <= 1) return;
+  // 内容变宽时若顶点已贴近屏幕右缘，向左挪，避免增长后滑出工作区
+  const wa = screen.getDisplayMatching(cur).workArea;
+  let x = cur.x;
+  if (x + width > wa.x + wa.width) x = Math.max(wa.x, wa.x + wa.width - width);
+  if (x < wa.x) x = wa.x;
   // Windows 上创建时 resizable:false 的窗口可能忽略程序化尺寸变更，
   // 先临时放开、改完再收回（视觉无感，用户侧仍不可拖拽）
   floatWin.setResizable(true);
-  floatWin.setBounds({ x: cur.x, y: cur.y, width, height });
+  floatWin.setBounds({ x, y: cur.y, width, height });
   floatWin.setResizable(false);
 });
 ipcMain.on('copy-text', (_e, t) => {
@@ -459,11 +507,15 @@ ipcMain.on('copy-text', (_e, t) => {
 });
 
 app.whenReady().then(() => {
-  console.log('[boot] ready');
+  if (!isPrimary) return;
+  console.log('[boot] ready', process.platform);
+  // macOS：菜单栏常驻，隐藏 Dock（打包侧 LSUIElement 双保险）
   app.dock && app.dock.hide();
   try {
     app.setLoginItemSettings({ openAtLogin: !!config.launchAtLogin });
-  } catch {}
+  } catch (e) {
+    console.error('[login-item] failed', e);
+  }
   createTray();
   console.log('[boot] tray ok');
   refresh();
@@ -475,4 +527,5 @@ app.whenReady().then(() => {
 app.on('before-quit', () => {
   appQuitting = true;
 });
-app.on('window-all-closed', () => {}); // 托盘常驻，不退出
+// 托盘常驻：关窗不退出（macOS/Windows/Linux 一致）
+app.on('window-all-closed', () => {});

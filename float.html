@@ -113,22 +113,44 @@
 
   function applyLook() {
     const f = (cfg && cfg.float) || {};
-    document.getElementById('card').style.background =
-      `rgba(22, 24, 29, ${f.opacity ?? 0.96})`;
+    const op = Math.min(1, Math.max(0.3, f.opacity ?? 0.96));
+    // macOS 透明窗：rgba 透明度生效
+    // Windows 不透明黑底：改为卡片底色明度插值，保证滑条可感知
+    // op=1 → 设计色 #16181d；op=0.3 → 更暗但仍与纯黑拉开差距
+    const dark = [22, 24, 29];
+    const black = [8, 9, 12];
+    const t = (op - 0.3) / 0.7;
+    const r = Math.round(black[0] + (dark[0] - black[0]) * t);
+    const g = Math.round(black[1] + (dark[1] - black[1]) * t);
+    const b = Math.round(black[2] + (dark[2] - black[2]) * t);
+    const isWin = /Windows/i.test(navigator.userAgent || '');
+    const card = document.getElementById('card');
+    if (isWin) {
+      card.style.background = `rgb(${r}, ${g}, ${b})`;
+      card.style.border = `1px solid rgba(42, 46, 54, ${0.35 + op * 0.65})`;
+    } else {
+      card.style.background = `rgba(22, 24, 29, ${op})`;
+      card.style.border = '';
+    }
     document.body.dataset.density = f.density === 'compact' ? 'compact' : 'std';
     document.body.classList.toggle('alarm', entries.some((e) => e.red));
   }
 
   function heroEntries() {
-    const ids = (cfg && cfg.float && cfg.float.heroIds) || [];
-    const picked = ids
-      .filter(Boolean)
-      .map((id) => entries.find((e) => e.id === id))
-      .filter(Boolean);
+    const ids = Array.isArray(cfg && cfg.float && cfg.float.heroIds)
+      ? cfg.float.heroIds
+      : [];
+    const picked = [];
+    for (const id of ids) {
+      if (!id) continue;
+      const e = entries.find((x) => x.id === id);
+      // 双核心位同一字段只显示一次
+      if (e && !picked.some((p) => p.id === e.id)) picked.push(e);
+    }
     // 指定的核心位优先，剩余名额从已勾选字段顺位补满（横向两格）
     for (const e of entries) {
       if (picked.length >= 2) break;
-      if (!picked.includes(e)) picked.push(e);
+      if (!picked.some((p) => p.id === e.id)) picked.push(e);
     }
     return picked;
   }
@@ -157,7 +179,7 @@
     listEl.style.display = mini ? 'none' : '';
 
     if (error && !entries.length) {
-      const cred = /凭证|登录|passToken|EXPIRED|70016/.test(error);
+      const cred = /凭证已失效|登录验证|passToken|EXPIRED|70016|未找到小米账号/.test(error);
       const errDiv = document.createElement('div');
       errDiv.className = 'err';
       const main = document.createElement('div');

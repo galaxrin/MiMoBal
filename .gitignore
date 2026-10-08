@@ -7,3 +7,4 @@ pboot.err
 dist/
 dist.log
 dist.err
+generated-*.png

@@ -372,6 +372,11 @@ async function mimopcLogin() {
 
   const base = 'https://mimo-server-cn.xiaomimimo.com/api';
   const probe = await subReq(cookies, `${base}/user/xiaomi/me`, { sendAccount: false });
+  // 已登录：接口直接 200 + code=0，不再走 302 loginUrl
+  if (probe.ok) {
+    const j = await probe.json().catch(() => null);
+    if (j && j.code === 0) return cookies;
+  }
   const loginUrl = probe.headers.get('location');
   if (!loginUrl) return null;
 

@@ -1,18 +1,22 @@
 {
   "name": "mimobal",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "MiMo 余额 / Token Plan 桌面悬浮窗 + 托盘仪表盘",
+  "author": "galaxrin <zhuanggaolin@gmail.com>",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win"
+    "dist:win": "electron-builder --win",
+    "dist:mac": "electron-builder --mac",
+    "dist": "electron-builder --win --mac"
   },
   "build": {
     "appId": "com.galaxrin.mimobal",
     "productName": "MiMoBal",
     "executableName": "MiMoBal",
     "directories": {
-      "output": "dist"
+      "output": "dist",
+      "buildResources": "build"
     },
     "files": [
       "main.js",
@@ -25,8 +29,26 @@
       "icon@2x.png",
       "icon-win.png"
     ],
+    "mac": {
+      "icon": "icon.icns",
+      "category": "public.app-category.utilities",
+      "target": [
+        { "target": "dmg", "arch": ["x64", "arm64"] },
+        { "target": "zip", "arch": ["x64", "arm64"] }
+      ],
+      "artifactName": "MiMoBal-${version}-${arch}.${ext}",
+      "darkModeSupport": true,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "identity": null,
+      "extendInfo": {
+        "LSUIElement": true,
+        "NSHighResolutionCapable": true
+      }
+    },
     "win": {
       "icon": "icon.ico",
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
       "artifactName": "MiMoBal-Setup-${version}.exe"
     },
     "nsis": {

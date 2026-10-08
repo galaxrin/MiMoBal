@@ -161,6 +161,7 @@
   // 所有改动防抖后立即落盘生效（无需保存按钮）。
   // 捕获 config 引用：即使防抖窗口内 state 被广播替换，落盘的仍是已编辑的这份
   function scheduleSave() {
+    if (!state) return;
     clearTimeout(saveTimer);
     const cfg = state.config;
     saveTimer = setTimeout(() => {
@@ -177,6 +178,7 @@
   }
   function bindPill(el, get, set) {
     el.onclick = () => {
+      if (!state) return; // getState 尚未返回
       const next = !get();
       set(next);
       pill(el, next);
@@ -339,7 +341,7 @@
     const errEl = document.getElementById('err');
     errEl.innerHTML = '';
     if (s.error) {
-      const cred = /凭证|登录|passToken|EXPIRED|70016/.test(s.error);
+      const cred = /凭证已失效|登录验证|passToken|EXPIRED|70016|未找到小米账号/.test(s.error);
       const title = document.createElement('div');
       title.className = 'err-title';
       title.textContent = cred ? '登录凭证已失效' : '数据获取失败';
@@ -366,27 +368,38 @@
     render(state);
   };
   document.getElementById('opacity').oninput = (e) => {
+    if (!state) return;
     document.getElementById('opacityPct').textContent = e.target.value + '%';
     state.config.float.opacity = Number(e.target.value) / 100;
     scheduleSave();
   };
   document.getElementById('floatMode').onchange = (e) => {
+    if (!state) return;
     state.config.float.mode = e.target.value;
     scheduleSave();
   };
   document.getElementById('density').onchange = (e) => {
+    if (!state) return;
     state.config.float.density = e.target.value;
     scheduleSave();
   };
   for (const selId of ['hero1', 'hero2']) {
     document.getElementById(selId).onchange = () => {
-      const a = document.getElementById('hero1').value || null;
-      const b = document.getElementById('hero2').value || null;
+      if (!state) return;
+      let a = document.getElementById('hero1').value || null;
+      let b = document.getElementById('hero2').value || null;
+      // 双核心位禁止同一字段，后改的清空先改的
+      if (a && a === b) {
+        if (selId === 'hero1') b = null;
+        else a = null;
+        document.getElementById(selId === 'hero1' ? 'hero2' : 'hero1').value = '';
+      }
       state.config.float.heroIds = [a, b];
       scheduleSave();
     };
   }
   document.getElementById('refreshSec').onchange = (e) => {
+    if (!state) return;
     state.config.refreshSec = Number(e.target.value);
     scheduleSave();
   };
