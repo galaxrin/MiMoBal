@@ -43,3 +43,20 @@ jobs:
             - macOS：`MiMoBal_*.dmg`（Apple Silicon）
             - Windows：`MiMoBal_Setup_*.exe`
           args: ${{ matrix.args }}
+
+  prune-assets:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Keep only dmg and setup.exe
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          for a in $(gh release view "$TAG" --json assets --jq '.assets[].name'); do
+            case "$a" in
+              *.dmg|*-setup.exe) ;;
+              *) gh release delete-asset "$TAG" "$a" -y ;;
+            esac
+          done
+          gh release view "$TAG" --json assets --jq '.assets[].name'
