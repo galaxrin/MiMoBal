@@ -8,3 +8,7 @@ dist/
 dist.log
 dist.err
 generated-*.png
+src-tauri/target/
+src-tauri/gen/
+.claude/
+agent/

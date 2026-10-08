@@ -1,0 +1,50 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: --target universal-apple-dual
+          - platform: windows-latest
+            args: ""
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: matrix.platform != 'macos-latest'
+      - uses: dtolnay/rust-toolchain@stable
+        if: matrix.platform == 'macos-latest'
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: oven-sh/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install frontend deps
+        run: npm install
+
+      - name: Build and upload release assets
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: MiMoBal ${{ github.ref_name }}
+          releaseBody: |
+            Rust (Tauri 2) 重写版。
+            - macOS：`MiMoBal_*.dmg`（universal，Intel + Apple Silicon）
+            - Windows：`MiMoBal_Setup_*.exe`
+          args: ${{ matrix.args }}

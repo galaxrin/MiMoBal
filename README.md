@@ -2,6 +2,8 @@
 
 MiMo 余额 / Token Plan 桌面小工具。**macOS / Windows 双端**，托盘常驻，悬浮窗让你一眼看到余额和用量，不用打开网页。
 
+技术栈：**Rust + Tauri 2**（悬浮窗 / 设置界面复用 `frontend/` 下的 HTML，业务逻辑全在 `src-tauri/src/`）。
+
 ## 功能
 
 - **悬浮窗**：核心大数字 + 字段列表，拖动记忆位置，点击数值可复制，支持迷你单行模式
@@ -47,15 +49,34 @@ MiMo 余额 / Token Plan 桌面小工具。**macOS / Windows 双端**，托盘�
 
 ## 从源码运行
 
+需要 [Rust 工具链](https://rustup.rs)（`rustup`）与 Node.js 22+（仅用于 Tauri CLI）。
+
 ```bash
 npm install
-npm start          # 当前平台开发运行
-npm run dist:win   # 打 Windows NSIS 安装包
-npm run dist:mac   # 打 macOS dmg + zip
-npm run dist       # 双端一起打
+npm run dev      # 当前平台开发运行（tauri dev）
+npm run build    # 打当前平台安装包（dmg / exe）
 ```
 
-需要 Node.js 22 或以上。macOS 打包需本机 `iconutil`（系统自带）。
+测试与检查：
+
+```bash
+cd src-tauri
+cargo test       # 字段计算 / 配置合并 / 凭证解析单测
+cargo check
+```
+
+## 代码结构
+
+```
+frontend/          # 悬浮窗 / 设置界面（HTML，经 bridge.js 对接 Rust IPC）
+src-tauri/src/
+  main.rs          # 托盘、悬浮窗、刷新循环、IPC、阈值通知
+  data.rs          # 凭证读取（Cookie 库 → HTTP 缓存回退）+ 小米 SSO + 平台 API
+  fields.rs        # 字段注册表与纯计算（阈值判红等）
+  config.rs        # 配置加载 / 合并 / 旧版迁移
+```
+
+macOS 打包需本机 `iconutil`（系统自带）；图标用 `npx tauri icon <png>` 重新生成到 `src-tauri/icons/`。
 
 ## License
 

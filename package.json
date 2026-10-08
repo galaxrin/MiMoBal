@@ -1,73 +1,16 @@
 {
   "name": "mimobal",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "MiMo 余额 / Token Plan 桌面悬浮窗 + 托盘仪表盘",
   "author": "galaxrin <zhuanggaolin@gmail.com>",
-  "main": "main.js",
-  "scripts": {
-    "start": "electron .",
-    "dist:win": "electron-builder --win",
-    "dist:mac": "electron-builder --mac",
-    "dist": "electron-builder --win --mac"
-  },
-  "build": {
-    "appId": "com.galaxrin.mimobal",
-    "productName": "MiMoBal",
-    "executableName": "MiMoBal",
-    "directories": {
-      "output": "dist",
-      "buildResources": "build"
-    },
-    "files": [
-      "main.js",
-      "fields.js",
-      "data.js",
-      "preload.js",
-      "float.html",
-      "settings.html",
-      "icon.png",
-      "icon@2x.png",
-      "icon-win.png"
-    ],
-    "mac": {
-      "icon": "icon.icns",
-      "category": "public.app-category.utilities",
-      "target": [
-        { "target": "dmg", "arch": ["x64", "arm64"] },
-        { "target": "zip", "arch": ["x64", "arm64"] }
-      ],
-      "artifactName": "MiMoBal-${version}-${arch}.${ext}",
-      "darkModeSupport": true,
-      "hardenedRuntime": false,
-      "gatekeeperAssess": false,
-      "identity": null,
-      "extendInfo": {
-        "LSUIElement": true,
-        "NSHighResolutionCapable": true
-      }
-    },
-    "win": {
-      "icon": "icon.ico",
-      "target": [{ "target": "nsis", "arch": ["x64"] }],
-      "artifactName": "MiMoBal-Setup-${version}.exe"
-    },
-    "nsis": {
-      "oneClick": false,
-      "perMachine": false,
-      "allowToChangeInstallationDirectory": true,
-      "deleteAppDataOnUninstall": false,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "MiMoBal",
-      "installerHeader": "build/installerHeader.bmp",
-      "installerSidebar": "build/installerSidebar.bmp",
-      "installerLanguages": ["zh_CN"],
-      "displayLanguageSelector": false
-    }
-  },
+  "private": true,
   "license": "MIT",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build"
+  },
   "devDependencies": {
-    "electron": "^44.5.0",
-    "electron-builder": "^26.15.3"
+    "@tauri-apps/cli": "^2"
   }
 }

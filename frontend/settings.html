@@ -1,0 +1,540 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<style>
+  :root {
+    --bg: #16181d;
+    --panel: #1e2128;
+    --field: #23262d;
+    --line: #2a2e36;
+    --line-soft: #23262d;
+    --text: #e8eaed;
+    --muted: #8b919a;
+    --dim: #6b7078;
+    --accent: #4c8dff;
+    --danger: #e06c75;
+    --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  * { box-sizing: border-box; }
+  /* 隐藏滚动条但保留滚动 */
+  html { scrollbar-width: none; }
+  html::-webkit-scrollbar { width: 0; height: 0; display: none; }
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", "Segoe UI", -apple-system, sans-serif;
+    margin: 0; background: var(--bg); color: var(--text); font-size: 13px;
+    padding: 18px 18px 22px; user-select: none;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.5;
+  }
+  /* 极轻环境光：给纯平深色一点层次，不抢内容 */
+  body::before {
+    content: ""; position: fixed; inset: 0; pointer-events: none;
+    background: radial-gradient(120% 70% at 85% -15%, rgba(76, 141, 255, 0.055), transparent 62%);
+  }
+  body > * { position: relative; }
+
+  :focus-visible {
+    outline: 2px solid rgba(76, 141, 255, 0.7);
+    outline-offset: 2px; border-radius: 4px;
+  }
+
+  h2 {
+    font-size: 15px; font-weight: 600; margin: 0 0 12px;
+    letter-spacing: -0.01em; text-wrap: balance;
+  }
+
+  /* 分段控件：胶囊型 */
+  .seg {
+    display: flex; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 999px; padding: 3px; margin-bottom: 14px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.22);
+  }
+  .seg button {
+    flex: 1; border: none; background: transparent; color: var(--muted);
+    padding: 6px 0; border-radius: 999px; cursor: pointer; font-size: 12px;
+    font-family: inherit;
+    transition: background 0.18s var(--ease), color 0.18s var(--ease);
+  }
+  .seg button:hover { color: var(--text); }
+  .seg button:active { transform: scale(0.98); }
+  .seg button.on { background: var(--accent); color: #fff; font-weight: 600; }
+
+  .hint { color: var(--muted); font-size: 11px; margin-bottom: 4px; }
+
+  /* 分组头：圆角胶囊卡片 */
+  .cat {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 9px 12px; margin-top: 8px; cursor: pointer;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.22);
+    transition: background 0.18s var(--ease), border-color 0.18s var(--ease);
+  }
+  .cat:hover { background: #242831; border-color: #333844; }
+  .cat:active { transform: scale(0.995); }
+  .cat .arrow {
+    color: var(--dim); font-size: 10px; width: 10px;
+    transition: color 0.18s var(--ease);
+  }
+  .cat:hover .arrow { color: var(--muted); }
+  .cat .name { font-weight: 600; font-size: 13px; letter-spacing: -0.005em; }
+  .cat .count { color: var(--dim); font-size: 11px; margin-left: auto;
+    font-variant-numeric: tabular-nums; }
+
+  .cat.static { cursor: default; }
+  .cat.static:hover { background: var(--panel); border-color: var(--line); }
+  .cat.static .name { color: var(--muted); font-size: 12px; font-weight: 500;
+    letter-spacing: 0.04em; }
+  #commonGroup { border-radius: 8px; display: block; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.22); }
+
+  /* 分组内容：卡片容器包住 */
+  .group { display: none; border: 1px solid var(--line); border-top: none;
+    border-radius: 0 0 8px 8px; overflow: hidden; }
+  .group.open { display: block; animation: reveal 0.2s var(--ease); }
+  @keyframes reveal {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: none; }
+  }
+
+  .row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 9px 12px; min-height: 40px;
+    border-top: 1px solid var(--line-soft); border-bottom: none;
+    transition: background 0.18s var(--ease);
+  }
+  .row:first-child { border-top: none; }
+  .row:hover { background: rgba(255, 255, 255, 0.03); }
+  .row .lbl { flex: 1; font-size: 12px; font-weight: 500; }
+  .row .thr {
+    color: var(--muted); font-size: 11px; white-space: nowrap;
+    text-align: right; flex: none;
+    font-variant-numeric: tabular-nums;
+  }
+  .row .ops { display: flex; gap: 4px; flex: none; }
+  .row .ops button {
+    background: var(--field); border: 1px solid var(--line); color: #c5c9d0;
+    border-radius: 4px; width: 22px; height: 22px; cursor: pointer; font-size: 10px;
+    font-family: inherit;
+    transition: background 0.18s var(--ease), border-color 0.18s var(--ease);
+  }
+  .row .ops button:hover { background: #2f3440; border-color: #3a404d; }
+  .row .ops button:active { transform: scale(0.94); }
+
+  /* 胶囊开关 */
+  .pill {
+    position: relative; width: 36px; height: 20px; border-radius: 999px;
+    background: #3a3f4a; cursor: pointer; flex: none; margin-left: auto;
+    transition: background 0.18s var(--ease);
+  }
+  .pill:hover { background: #464c59; }
+  .pill.on { background: var(--accent); }
+  .pill.on:hover { background: #3f82f5; }
+  .pill::after {
+    content: ""; position: absolute; top: 2px; left: 2px;
+    width: 16px; height: 16px; border-radius: 50%; background: #fff;
+    transition: left 0.18s var(--ease);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  }
+  .pill.on::after { left: 18px; }
+  .pill:active::after { width: 18px; }
+
+  input[type="number"] {
+    width: 58px; background: var(--field); border: 1px solid var(--line);
+    color: var(--text); border-radius: 4px; padding: 2px 5px; font-size: 11px;
+    font-family: inherit; font-variant-numeric: tabular-nums;
+    height: 22px; box-sizing: border-box;
+    transition: border-color 0.18s var(--ease);
+  }
+  input[type="number"]:hover, select:hover { border-color: #3a404d; }
+  input[type="number"]:focus-visible, select:focus-visible { border-color: var(--accent); }
+
+  select {
+    background: var(--field); color: var(--text); border: 1px solid var(--line);
+    border-radius: 4px; padding: 2px 6px; font-size: 12px; font-family: inherit;
+    height: 22px; flex: none;
+    transition: border-color 0.18s var(--ease);
+  }
+  input[type="range"] { flex: 1; accent-color: var(--accent); height: 18px; }
+  .pct { width: 38px; text-align: right; color: var(--muted); font-size: 11px;
+    font-variant-numeric: tabular-nums; }
+  select { max-width: 104px; }
+
+  .err { margin-top: 14px; }
+  .err-title { color: var(--danger); font-size: 12px; font-weight: 600; margin-bottom: 2px; }
+  .err-detail { color: var(--muted); font-size: 11px; margin-bottom: 6px; word-break: break-word; }
+  .err button {
+    background: var(--field); border: 1px solid var(--line);
+    color: #c5c9d0; border-radius: 4px; font-size: 11px; padding: 3px 12px;
+    cursor: pointer; font-family: inherit;
+    transition: background 0.18s var(--ease), border-color 0.18s var(--ease);
+  }
+  .err button:hover { background: #2f3440; border-color: #3a404d; }
+  .err button:active { transform: scale(0.97); }
+</style>
+</head>
+<body>
+  <h2>MiMoBal 设置</h2>
+  <div class="seg">
+    <button id="segFloat">悬浮窗</button>
+    <button id="segTray">托盘栏</button>
+  </div>
+  <div class="hint" id="targetHint"></div>
+  <div id="groups"></div>
+
+  <div class="cat" id="othersHead" role="button" tabindex="0" aria-expanded="false" aria-controls="othersGroup">
+    <span class="arrow">▸</span><span class="name">其他</span>
+    <span class="count"></span>
+  </div>
+  <div class="group" id="othersGroup">
+    <div class="row" id="rowHero">
+      <span class="lbl">核心位（大数字）</span>
+      <select id="hero1"></select>
+      <select id="hero2"></select>
+    </div>
+    <div class="row" id="rowMode">
+      <span class="lbl">模式</span>
+      <select id="floatMode"><option value="full">完整</option><option value="mini">迷你单行</option></select>
+    </div>
+    <div class="row" id="rowOpacity">
+      <span class="lbl">透明度</span>
+      <input type="range" id="opacity" min="60" max="100" step="5" style="flex:1" />
+      <span class="pct" id="opacityPct"></span>
+    </div>
+    <div class="row" id="rowDensity">
+      <span class="lbl">密度</span>
+      <select id="density"><option value="std">标准</option><option value="compact">紧凑</option></select>
+    </div>
+    <div class="row" id="rowTrayTitle">
+      <span class="lbl">托盘显示文字摘要（全部已勾选字段）</span>
+      <span class="pill" id="trayTitle"></span>
+    </div>
+    <div class="row" id="rowIconAdj">
+      <span class="lbl">菜单栏图标垂直微调</span>
+      <input type="range" id="iconAdj" min="-3" max="3" step="1" style="flex:1" />
+      <span class="pct" id="iconAdjVal"></span>
+    </div>
+  </div>
+
+  <div class="cat static" id="commonHead"><span class="name">公共设置</span></div>
+  <div class="group open" id="commonGroup">
+    <div class="row" id="rowShowFloat">
+      <span class="lbl">显示悬浮窗（记忆，下次启动生效）</span>
+      <span class="pill" id="showFloat"></span>
+    </div>
+    <div class="row" id="rowRefresh">
+      <span class="lbl">刷新间隔</span>
+      <select id="refreshSec">
+        <option value="10">10 秒</option>
+        <option value="30">30 秒</option>
+        <option value="60">60 秒</option>
+        <option value="300">5 分钟</option>
+      </select>
+    </div>
+    <div class="row" id="rowLaunch">
+      <span class="lbl">开机自启动</span>
+      <span class="pill" id="launchAtLogin"></span>
+    </div>
+  </div>
+
+  <div class="err" id="err"></div>
+
+<script src="bridge.js"></script>
+<script>
+  let state = null;
+  let target = localStorage.getItem('target') === 'tray' ? 'tray' : 'float';
+  let saveTimer = null;
+  const CATS = ['余额', 'Token Plan', '桌面端订阅'];
+  const catOpen = (c) => localStorage.getItem('cat:' + c) === '1';
+
+  // 所有改动防抖后立即落盘生效（无需保存按钮）。
+  // 捕获 config 引用：即使防抖窗口内 state 被广播替换，落盘的仍是已编辑的这份
+  function scheduleSave() {
+    if (!state) return;
+    clearTimeout(saveTimer);
+    const cfg = state.config;
+    saveTimer = setTimeout(() => {
+      saveTimer = null;
+      api.saveConfig(cfg);
+    }, 250);
+  }
+
+  const activeList = () =>
+    target === 'tray' ? state.config.tray.fields : state.config.float.fields;
+
+  function pill(el, on) {
+    el.classList.toggle('on', on);
+    el.setAttribute('role', 'switch');
+    el.setAttribute('aria-checked', on ? 'true' : 'false');
+    if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '0');
+    el.onkeydown = (e) => {
+      if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); el.click(); }
+    };
+  }
+  function bindPill(el, get, set) {
+    el.onclick = () => {
+      if (!state) return; // getState 尚未返回
+      const next = !get();
+      set(next);
+      pill(el, next);
+      scheduleSave();
+    };
+  }
+
+  function moveField(id, dir) {
+    const list = activeList();
+    const meta = state.fieldsMeta.find((m) => m.id === id);
+    const sameCat = list.filter((f) => {
+      const m = state.fieldsMeta.find((x) => x.id === f.id);
+      return m && m.cat === meta.cat;
+    }).map((f) => f.id);
+    const pos = sameCat.indexOf(id);
+    const t = pos + dir;
+    if (t < 0 || t >= sameCat.length) return;
+    const a = list.findIndex((f) => f.id === sameCat[pos]);
+    const b = list.findIndex((f) => f.id === sameCat[t]);
+    [list[a], list[b]] = [list[b], list[a]];
+  }
+
+  function renderGroups() {
+    const s = state;
+    const cfg = s.config;
+    const list = activeList();
+    const meta = s.fieldsMeta;
+    const root = document.getElementById('groups');
+    root.innerHTML = '';
+
+    for (const cat of CATS) {
+      const ids = list.filter((f) => {
+        const m = meta.find((x) => x.id === f.id);
+        return m && m.cat === cat;
+      });
+      const onCount = ids.filter((f) => f.on).length;
+      const open = catOpen(cat);
+
+      const head = document.createElement('div');
+      head.className = 'cat';
+      head.setAttribute('role', 'button');
+      head.setAttribute('tabindex', '0');
+      head.setAttribute('aria-expanded', open ? 'true' : 'false');
+      head.innerHTML = `<span class="arrow">${open ? '▾' : '▸'}</span>
+        <span class="name"></span><span class="count">${onCount}/${ids.length} 显示</span>`;
+      head.querySelector('.name').textContent = cat;
+      const toggleCat = () => {
+        localStorage.setItem('cat:' + cat, open ? '0' : '1');
+        renderGroups();
+      };
+      head.onclick = toggleCat;
+      head.onkeydown = (e) => {
+        if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggleCat(); }
+      };
+      root.appendChild(head);
+
+      const group = document.createElement('div');
+      group.className = 'group' + (open ? ' open' : '');
+      for (const f of ids) {
+        const m = meta.find((x) => x.id === f.id) || { label: f.id };
+        const th = cfg.thresholds[f.id] || {};
+        const row = document.createElement('div');
+        row.className = 'row';
+        row.innerHTML = `
+          <span class="lbl"></span>
+          <span class="thr"></span>
+          <span class="ops"><button class="up">↑</button><button class="dn">↓</button></span>
+          <span class="pill"></span>`;
+        row.querySelector('.lbl').textContent = m.label;
+        const thr = row.querySelector('.thr');
+        // 配置可被手改：只接受有限数值再回填，防止字符串注入进 value 插值
+        const clean = (v) => (v != null && v !== '' && Number.isFinite(Number(v))) ? Number(v) : '';
+        const minV = clean(th.min);
+        const maxV = clean(th.max);
+        if (m.min) thr.insertAdjacentHTML('beforeend',
+          `低于 <input type="number" class="min" value="${minV}" placeholder="—"> `);
+        if (m.max) thr.insertAdjacentHTML('beforeend',
+          `高于 <input type="number" class="max" value="${maxV}" placeholder="—">`);
+        if (!m.min && !m.max) thr.textContent = '—';
+
+        const p = row.querySelector('.pill');
+        pill(p, f.on);
+        bindPill(p, () => f.on, (v) => { f.on = v; });
+        const minEl = row.querySelector('.min'), maxEl = row.querySelector('.max');
+        if (minEl) minEl.oninput = (e) => {
+          cfg.thresholds[f.id] = cfg.thresholds[f.id] || {};
+          cfg.thresholds[f.id].min = e.target.value === '' ? null : Number(e.target.value);
+          scheduleSave();
+        };
+        if (maxEl) maxEl.oninput = (e) => {
+          cfg.thresholds[f.id] = cfg.thresholds[f.id] || {};
+          cfg.thresholds[f.id].max = e.target.value === '' ? null : Number(e.target.value);
+          scheduleSave();
+        };
+        row.querySelector('.up').onclick = () => { moveField(f.id, -1); renderGroups(); scheduleSave(); };
+        row.querySelector('.dn').onclick = () => { moveField(f.id, +1); renderGroups(); scheduleSave(); };
+        group.appendChild(row);
+      }
+      root.appendChild(group);
+    }
+  }
+
+  function render(s) {
+    if (!s) return; // 初始 getState 未返回前，seg/折叠按钮可能提前触发 render(state)
+    state = s;
+    const cfg = s.config;
+    // 分段控件
+    document.getElementById('segFloat').classList.toggle('on', target === 'float');
+    document.getElementById('segTray').classList.toggle('on', target === 'tray');
+    document.getElementById('targetHint').textContent = target === 'float'
+      ? '以下字段与顺序仅作用于悬浮窗'
+      : '以下字段与顺序仅作用于托盘摘要与菜单';
+
+    // 其他收纳组：按当前页显示相关选项
+    const othersOpen = catOpen('其他');
+    const head = document.getElementById('othersHead');
+    head.querySelector('.arrow').textContent = othersOpen ? '▾' : '▸';
+    head.setAttribute('aria-expanded', othersOpen ? 'true' : 'false');
+    document.getElementById('othersGroup').classList.toggle('open', othersOpen);
+    const floatOnlyRows = ['rowHero', 'rowMode', 'rowOpacity', 'rowDensity'];
+    for (const id of floatOnlyRows) {
+      document.getElementById(id).style.display = target === 'float' ? '' : 'none';
+    }
+    document.getElementById('rowTrayTitle').style.display = target === 'tray' ? '' : 'none';
+    document.getElementById('rowIconAdj').style.display = target === 'tray' ? '' : 'none';
+    const visRows = [...document.querySelectorAll('#othersGroup .row')]
+      .filter((r) => r.style.display !== 'none').length;
+    head.querySelector('.count').textContent = visRows + ' 项';
+
+    // 悬浮窗自定义控件回填
+    const f = cfg.float || {};
+    document.getElementById('floatMode').value = f.mode === 'mini' ? 'mini' : 'full';
+    document.getElementById('density').value = f.density === 'compact' ? 'compact' : 'std';
+    document.getElementById('opacity').value = String(Math.round((f.opacity ?? 0.96) * 100));
+    document.getElementById('opacityPct').textContent =
+      Math.round((f.opacity ?? 0.96) * 100) + '%';
+    // 核心位下拉：仅已勾选字段
+    const enabled = cfg.float.fields.filter((x) => x.on)
+      .map((x) => ({ id: x.id, label: (s.fieldsMeta.find((m) => m.id === x.id) || {}).label || x.id }));
+    for (const selId of ['hero1', 'hero2']) {
+      const sel = document.getElementById(selId);
+      sel.innerHTML = '<option value="">自动</option>' +
+        enabled.map((o) => `<option value="${o.id}">${o.label}</option>`).join('');
+    }
+    const heroIds = f.heroIds || [];
+    document.getElementById('hero1').value = heroIds[0] || '';
+    document.getElementById('hero2').value = heroIds[1] || '';
+
+    // 正在输入阈值时不重建字段列表，避免打断输入
+    const ae = document.activeElement;
+    const typing = ae && ae.tagName === 'INPUT' && ae.closest && ae.closest('#groups');
+    if (!typing) renderGroups();
+
+    pill(document.getElementById('trayTitle'), cfg.tray.showTitle);
+    const adj = Math.max(-3, Math.min(3, Number(cfg.tray.adjust) || 0));
+    document.getElementById('iconAdj').value = String(adj);
+    document.getElementById('iconAdjVal').textContent = adj > 0 ? `+${adj}` : String(adj);
+    pill(document.getElementById('launchAtLogin'), !!cfg.launchAtLogin);
+    pill(document.getElementById('showFloat'), cfg.float.show !== false);
+    const rsSel = document.getElementById('refreshSec');
+    rsSel.value = String(cfg.refreshSec);
+    if (rsSel.value !== String(cfg.refreshSec)) {
+      // 手改出的非预设间隔：补一个临时选项，避免下拉显示空白
+      if (![...rsSel.options].some((o) => o.value === String(cfg.refreshSec))) {
+        const o = document.createElement('option');
+        o.value = String(cfg.refreshSec);
+        o.textContent = cfg.refreshSec + ' 秒';
+        rsSel.appendChild(o);
+      }
+      rsSel.value = String(cfg.refreshSec);
+    }
+    const errEl = document.getElementById('err');
+    errEl.innerHTML = '';
+    if (s.error) {
+      const cred = /凭证已失效|登录验证|passToken|EXPIRED|70016|未找到小米账号/.test(s.error);
+      const title = document.createElement('div');
+      title.className = 'err-title';
+      title.textContent = cred ? '登录凭证已失效' : '数据获取失败';
+      const detail = document.createElement('div');
+      detail.className = 'err-detail';
+      detail.textContent = cred
+        ? '请在 MiMo Desktop 退出并重新登录，然后点「重试」'
+        : s.error;
+      const btn = document.createElement('button');
+      btn.textContent = '重试';
+      btn.onclick = () => {
+        btn.disabled = true;
+        btn.textContent = '重试中…';
+        api.refreshNow().catch(() => { btn.disabled = false; btn.textContent = '重试'; });
+      };
+      errEl.append(title, detail, btn);
+    }
+  }
+
+  document.getElementById('segFloat').onclick = () => { target = 'float'; localStorage.setItem('target', target); render(state); };
+  document.getElementById('segTray').onclick = () => { target = 'tray'; localStorage.setItem('target', target); render(state); };
+  document.getElementById('othersHead').onclick = () => {
+    localStorage.setItem('cat:其他', catOpen('其他') ? '0' : '1');
+    render(state);
+  };
+  document.getElementById('othersHead').onkeydown = (e) => {
+    if (e.key === ' ' || e.key === 'Enter') {
+      e.preventDefault();
+      document.getElementById('othersHead').click();
+    }
+  };
+  document.getElementById('opacity').oninput = (e) => {
+    if (!state) return;
+    document.getElementById('opacityPct').textContent = e.target.value + '%';
+    state.config.float.opacity = Number(e.target.value) / 100;
+    scheduleSave();
+  };
+  document.getElementById('floatMode').onchange = (e) => {
+    if (!state) return;
+    state.config.float.mode = e.target.value;
+    scheduleSave();
+  };
+  document.getElementById('density').onchange = (e) => {
+    if (!state) return;
+    state.config.float.density = e.target.value;
+    scheduleSave();
+  };
+  for (const selId of ['hero1', 'hero2']) {
+    document.getElementById(selId).onchange = () => {
+      if (!state) return;
+      let a = document.getElementById('hero1').value || null;
+      let b = document.getElementById('hero2').value || null;
+      // 双核心位禁止同一字段，后改的清空先改的
+      if (a && a === b) {
+        if (selId === 'hero1') b = null;
+        else a = null;
+        document.getElementById(selId === 'hero1' ? 'hero2' : 'hero1').value = '';
+      }
+      state.config.float.heroIds = [a, b];
+      scheduleSave();
+    };
+  }
+  document.getElementById('refreshSec').onchange = (e) => {
+    if (!state) return;
+    state.config.refreshSec = Number(e.target.value);
+    scheduleSave();
+  };
+  document.getElementById('iconAdj').oninput = (e) => {
+    if (!state) return;
+    const v = Math.max(-3, Math.min(3, Number(e.target.value)));
+    state.config.tray.adjust = v;
+    document.getElementById('iconAdjVal').textContent = v > 0 ? `+${v}` : String(v);
+    scheduleSave();
+  };
+  bindPill(document.getElementById('trayTitle'),
+    () => state.config.tray.showTitle,
+    (v) => { state.config.tray.showTitle = v; });
+  bindPill(document.getElementById('launchAtLogin'),
+    () => state.config.launchAtLogin,
+    (v) => { state.config.launchAtLogin = v; });
+  bindPill(document.getElementById('showFloat'),
+    () => state.config.float.show !== false,
+    (v) => { state.config.float.show = v; });
+
+  // 本地有未落盘的编辑（防抖中）时忽略广播：避免控件被旧状态回跳、pending 保存被覆盖
+  api.onState((s) => { if (saveTimer) return; render(s); });
+  api.getState().then(render);
+</script>
+</body>
+</html>
