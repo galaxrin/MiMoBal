@@ -53,10 +53,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${GITHUB_REF_NAME}"
-          for a in $(gh release view "$TAG" --json assets --jq '.assets[].name'); do
+          REPO="${GITHUB_REPOSITORY}"
+          for a in $(gh release view "$TAG" -R "$REPO" --json assets --jq '.assets[].name'); do
             case "$a" in
               *.dmg|*-setup.exe) ;;
-              *) gh release delete-asset "$TAG" "$a" -y ;;
+              *) gh release delete-asset "$TAG" "$a" -y -R "$REPO" ;;
             esac
           done
-          gh release view "$TAG" --json assets --jq '.assets[].name'
+          gh release view "$TAG" -R "$REPO" --json assets --jq '.assets[].name'
