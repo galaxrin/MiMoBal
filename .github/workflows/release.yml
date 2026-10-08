@@ -15,7 +15,7 @@ jobs:
       matrix:
         include:
           - platform: macos-latest
-            args: --target universal-apple-dual
+            args: ""
           - platform: windows-latest
             args: ""
     runs-on: ${{ matrix.platform }}
@@ -23,11 +23,6 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
-        if: matrix.platform != 'macos-latest'
-      - uses: dtolnay/rust-toolchain@stable
-        if: matrix.platform == 'macos-latest'
-        with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - uses: actions/setup-node@v4
         with:
@@ -45,6 +40,6 @@ jobs:
           releaseName: MiMoBal ${{ github.ref_name }}
           releaseBody: |
             Rust (Tauri 2) 重写版。
-            - macOS：`MiMoBal_*.dmg`（universal，Intel + Apple Silicon）
+            - macOS：`MiMoBal_*.dmg`（Apple Silicon）
             - Windows：`MiMoBal_Setup_*.exe`
           args: ${{ matrix.args }}
