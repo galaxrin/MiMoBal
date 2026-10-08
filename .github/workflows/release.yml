@@ -16,8 +16,6 @@ jobs:
         include:
           - platform: macos-latest
             args: ""
-          - platform: macos-15-intel
-            args: ""
           - platform: windows-latest
             args: ""
     runs-on: ${{ matrix.platform }}

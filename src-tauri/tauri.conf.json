@@ -16,7 +16,11 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": [
+      "app",
+      "dmg",
+      "nsis"
+    ],
     "category": "Utility",
     "shortDescription": "MiMo 余额 / Token Plan 桌面悬浮窗 + 托盘仪表盘",
     "icon": [
@@ -40,6 +44,7 @@
         "displayLanguageSelector": false,
         "installMode": "currentUser"
       }
-    }
+    },
+    "createUpdaterArtifacts": false
   }
 }
