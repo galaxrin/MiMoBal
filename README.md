@@ -17,10 +17,10 @@ MiMo 余额 / Token Plan 桌面小工具。**macOS / Windows 双端**，托盘�
 
 | 能力 | macOS | Windows |
 |---|---|---|
-| 入口 | 菜单栏图标（无 Dock，LSUIElement） | 系统托盘图标，左键=设置 |
+| 入口 | 菜单栏图标（无 Dock） | 系统托盘图标，左键=设置 |
 | 文字摘要 | 菜单栏标题（过长自动截断） | 悬停 tooltip + 右键菜单条目 |
 | 悬浮窗透明度 | 真透明（透出桌面） | 不透明底 + 底色深浅滑条 |
-| 安装包 | `MiMoBal-*.dmg` / `.zip` | `MiMoBal-Setup-*.exe` |
+| 安装包 | `MiMoBal_*.dmg`（x64 / aarch64） | `MiMoBal_*-setup.exe` / `MiMoBal_*.msi` |
 | 凭证来源 | MiMo Desktop Cookie / 缓存 | 同左（Cookie 被占用时走缓存回退） |
 
 ## 安装使用
@@ -28,13 +28,13 @@ MiMo 余额 / Token Plan 桌面小工具。**macOS / Windows 双端**，托盘�
 ### Windows
 
 1. 确保已安装并登录 [MiMo Desktop](https://mimo.xiaomi.com)
-2. 到 [Releases](https://github.com/galaxrin/MiMoBal/releases) 下载 `MiMoBal-Setup-*.exe`，双击安装（可选桌面快捷方式 / 开机自启）
+2. 到 [Releases](https://github.com/galaxrin/MiMoBal/releases) 下载 `MiMoBal_*-setup.exe`，双击安装（可选桌面快捷方式 / 开机自启）
 3. 启动后在系统托盘找到 MiMo 图标
 
 ### macOS
 
 1. 确保已安装并登录 MiMo Desktop
-2. 打开 `MiMoBal-*.dmg`，把应用拖到「应用程序」，首次打开若被 Gatekeeper 拦截：右键 → 打开（未签名构建）
+2. 打开 `MiMoBal_*.dmg`（Intel 选 x64、Apple Silicon 选 aarch64），把应用拖到「应用程序」，首次打开若被 Gatekeeper 拦截：右键 → 打开（未签名构建）
 3. 启动后在**菜单栏**找到 MiMo 图标
 
 **常用操作**
@@ -56,8 +56,6 @@ npm install
 npm run dev      # 当前平台开发运行（tauri dev）
 npm run build    # 打当前平台安装包（dmg / exe）
 ```
-
-测试与检查：
 
 ```bash
 cd src-tauri
