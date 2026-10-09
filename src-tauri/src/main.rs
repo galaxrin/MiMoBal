@@ -434,24 +434,31 @@ fn create_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         .icon(icon)
         .tooltip("MiMoBal")
         .on_menu_event(|app, event| {
-            // NSMenu action 回调栈内不能销毁窗口/重建菜单：close → Destroyed → set_menu
-            // 同步重入会直接崩（点「隐藏悬浮窗」闪退）。统一延迟到事件循环下一拍执行。
+            // NSMenu action 回调栈内不能销毁窗口/重建菜单（点隐藏悬浮窗会崩）。
+            // 先退出回调栈；再延迟一拍，确保菜单收起、run loop 回到 default 模式后
+            // 才投递执行——菜单跟踪（modal tracking）期间投递的事件可能被吞，
+            // 表现为首次点「设置」无效。
             let cmd = event.id().as_ref().to_string();
             let a = app.clone();
-            let _ = app.run_on_main_thread(move || match cmd.as_str() {
-                "quit" => {
-                    if let Some(shared) = a.try_state::<Shared>() {
-                        shared.lock().unwrap().quitting = true;
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(80));
+                eprintln!("[menu] defer run: {}", cmd);
+                let b = a.clone();
+                let _ = a.run_on_main_thread(move || match cmd.as_str() {
+                    "quit" => {
+                        if let Some(shared) = b.try_state::<Shared>() {
+                            shared.lock().unwrap().quitting = true;
+                        }
+                        b.exit(0);
                     }
-                    a.exit(0);
-                }
-                "settings" => open_settings(&a),
-                "toggle_float" => {
-                    if let Some(shared) = a.try_state::<Shared>() {
-                        toggle_float(&a, &shared);
+                    "settings" => open_settings(&b),
+                    "toggle_float" => {
+                        if let Some(shared) = b.try_state::<Shared>() {
+                            toggle_float(&b, &shared);
+                        }
                     }
-                }
-                _ => {}
+                    _ => {}
+                });
             });
         });
     #[cfg(target_os = "windows")]
@@ -647,15 +654,29 @@ fn on_window_event(app: &AppHandle, shared: &Shared, window_label: &str, event: 
 // ---------- 设置窗 ----------
 
 fn open_settings(app: &AppHandle) {
+    eprintln!(
+        "[settings] open requested, existing={}",
+        app.get_webview_window("settings").is_some()
+    );
     if let Some(w) = app.get_webview_window("settings") {
+        let _ = w.show();
         let _ = w.set_focus();
         return;
     }
     let builder = WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("settings.html".into()))
         .title("MiMoBal 设置")
         .inner_size(460.0, 620.0);
-    if let Err(e) = builder.build() {
-        eprintln!("[settings] create failed: {}", e);
+    match builder.build() {
+        Ok(w) => {
+            // 保底：确保首次创建就上屏并到前台
+            let _ = w.show();
+            let _ = w.set_focus();
+            eprintln!(
+                "[settings] built, visible={:?}",
+                w.is_visible()
+            );
+        }
+        Err(e) => eprintln!("[settings] create failed: {}", e),
     }
 }
 
