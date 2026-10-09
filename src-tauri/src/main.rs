@@ -433,20 +433,26 @@ fn create_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let mut builder = TrayIconBuilder::with_id("main")
         .icon(icon)
         .tooltip("MiMoBal")
-        .on_menu_event(|app, event| match event.id().as_ref() {
-            "quit" => {
-                if let Some(shared) = app.try_state::<Shared>() {
-                    shared.lock().unwrap().quitting = true;
+        .on_menu_event(|app, event| {
+            // NSMenu action 回调栈内不能销毁窗口/重建菜单：close → Destroyed → set_menu
+            // 同步重入会直接崩（点「隐藏悬浮窗」闪退）。统一延迟到事件循环下一拍执行。
+            let cmd = event.id().as_ref().to_string();
+            let a = app.clone();
+            let _ = app.run_on_main_thread(move || match cmd.as_str() {
+                "quit" => {
+                    if let Some(shared) = a.try_state::<Shared>() {
+                        shared.lock().unwrap().quitting = true;
+                    }
+                    a.exit(0);
                 }
-                app.exit(0);
-            }
-            "settings" => open_settings(app),
-            "toggle_float" => {
-                if let Some(shared) = app.try_state::<Shared>() {
-                    toggle_float(app, &shared);
+                "settings" => open_settings(&a),
+                "toggle_float" => {
+                    if let Some(shared) = a.try_state::<Shared>() {
+                        toggle_float(&a, &shared);
+                    }
                 }
-            }
-            _ => {}
+                _ => {}
+            });
         });
     #[cfg(target_os = "windows")]
     {
@@ -834,14 +840,25 @@ fn main() {
     // 任何退出路径（含 Cmd+Q / 系统退出）都置 quitting，
     // 避免窗口销毁时把 float.show 误写成 false。
     // 注意：setup 在 run() 的 Ready 事件里执行，state 只能在 run 回调中取
-    app.run(move |handle, event| {
-        if matches!(
-            event,
-            tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
-        ) {
+    app.run(move |handle, event| match event {
+        tauri::RunEvent::ExitRequested { code, api, .. } => {
+            if code.is_none() {
+                // 最后一个窗口被关闭（如隐藏悬浮窗）：托盘常驻不退出。
+                // 对应 Electron 版的 window-all-closed 空实现，不挡就会闪退。
+                eprintln!("[app] last window closed, keep running in tray");
+                api.prevent_exit();
+            } else {
+                // 显式退出（托盘菜单「退出」的 app.exit）
+                if let Some(shared) = handle.try_state::<Shared>() {
+                    shared.lock().unwrap().quitting = true;
+                }
+            }
+        }
+        tauri::RunEvent::Exit => {
             if let Some(shared) = handle.try_state::<Shared>() {
                 shared.lock().unwrap().quitting = true;
             }
         }
+        _ => {}
     });
 }
