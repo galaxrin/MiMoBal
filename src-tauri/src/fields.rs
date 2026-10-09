@@ -93,7 +93,7 @@ fn money_text(prefix: &str, raw: Option<&serde_json::Value>) -> String {
     }
 }
 
-fn date_text(v: Option<&serde_json::Value>) -> String {
+pub fn date_text(v: Option<&serde_json::Value>) -> String {
     let v = match v {
         None | Some(serde_json::Value::Null) => return "—".into(),
         Some(v) => v,

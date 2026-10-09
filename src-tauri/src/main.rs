@@ -152,15 +152,13 @@ fn check_threshold_alerts(app: &AppHandle, shared: &Shared) {
 fn check_period_reset(app: &AppHandle, shared: &Shared) {
     let mut inner = shared.lock().unwrap();
     let Some(snap) = &inner.snapshot else { return };
-    let Some(new_end) = snap
+    // currentPeriodEnd 可能是 "YYYY-MM-DD" 也可能 epoch——统一走 date_text 归一
+    let new_end = snap
         .get("detail")
         .and_then(|d| d.get("currentPeriodEnd"))
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty() && *s != "—")
-        .map(String::from)
-    else {
-        return;
-    };
+        .map(|v| fields::date_text(Some(v)))
+        .filter(|s| s != "—");
+    let Some(new_end) = new_end else { return };
     match &inner.last_period_end {
         None => inner.last_period_end = Some(new_end), // 首见：只记录不通知
         Some(old) if *old != new_end => {
@@ -442,7 +440,6 @@ fn create_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
             let a = app.clone();
             std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_millis(80));
-                eprintln!("[menu] defer run: {}", cmd);
                 let b = a.clone();
                 let _ = a.run_on_main_thread(move || match cmd.as_str() {
                     "quit" => {
@@ -654,10 +651,6 @@ fn on_window_event(app: &AppHandle, shared: &Shared, window_label: &str, event: 
 // ---------- 设置窗 ----------
 
 fn open_settings(app: &AppHandle) {
-    eprintln!(
-        "[settings] open requested, existing={}",
-        app.get_webview_window("settings").is_some()
-    );
     if let Some(w) = app.get_webview_window("settings") {
         let _ = w.show();
         let _ = w.set_focus();
@@ -671,10 +664,6 @@ fn open_settings(app: &AppHandle) {
             // 保底：确保首次创建就上屏并到前台
             let _ = w.show();
             let _ = w.set_focus();
-            eprintln!(
-                "[settings] built, visible={:?}",
-                w.is_visible()
-            );
         }
         Err(e) => eprintln!("[settings] create failed: {}", e),
     }
