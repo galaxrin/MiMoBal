@@ -1,8 +1,8 @@
 # MiMoBal
 
-MiMo 余额 / Token Plan 桌面小工具。**macOS / Windows 双端**，托盘常驻，悬浮窗让你一眼看到余额和用量，不用打开网页。
+MiMo 余额 / Token Plan 桌面小工具。**macOS / Windows 双端**，托盘常驻，悬浮窗让你一眼看到余额和用量。
 
-技术栈：**Rust + Tauri 2**（悬浮窗 / 设置界面复用 `frontend/` 下的 HTML，业务逻辑全在 `src-tauri/src/`）。
+技术栈：**Rust + Tauri 2**
 
 ## 功能
 
