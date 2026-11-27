@@ -13,6 +13,6 @@ src-tauri/gen/
 .claude/
 agent/
 
-# 更新签名私钥（本地/CI 均不入库）
+# 签名密钥不入库（自动更新已撤，保留防误提交）
 *.key
 *.key.pub

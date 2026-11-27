@@ -18,7 +18,6 @@ use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_notification::NotificationExt;
-use tauri_plugin_updater::UpdaterExt;
 
 use config::Config;
 use fields::{FieldMeta, FIELDS};
@@ -242,60 +241,6 @@ fn check_trend_alerts(app: &AppHandle, shared: &Shared) {
     }
 }
 
-// ---------- 自动更新 ----------
-
-fn notify(app: &AppHandle, title: &str, body: &str) {
-    let _ = app.notification().builder().title(title).body(body).show();
-}
-
-// 启动后静默检查：只提示有新版，不擅自动手
-async fn check_update_quiet(app: AppHandle) {
-    let Ok(updater) = app.updater() else { return };
-    match updater.check().await {
-        Ok(Some(u)) => {
-            println!("[update] 发现新版本 v{}", u.version);
-            notify(
-                &app,
-                "MiMoBal · 发现新版本",
-                &format!("v{} 可在托盘菜单「检查更新」安装", u.version),
-            );
-        }
-        Ok(None) => {}
-        Err(e) => eprintln!("[update] 检查失败: {}", e),
-    }
-}
-
-// 托盘菜单触发：检查 → 下载安装 → 重启生效
-fn install_update_async(app: AppHandle) {
-    tauri::async_runtime::spawn(async move {
-        let Ok(updater) = app.updater() else {
-            eprintln!("[update] 初始化失败");
-            return;
-        };
-        match updater.check().await {
-            Ok(Some(u)) => {
-                let v = u.version.clone();
-                notify(&app, "MiMoBal · 正在更新", &format!("下载 v{}…", v));
-                match u.download_and_install(|_, _| {}, || {}).await {
-                    Ok(()) => {
-                        notify(&app, "MiMoBal · 更新完成", &format!("已更新到 v{}，正在重启", v));
-                        app.restart();
-                    }
-                    Err(e) => {
-                        eprintln!("[update] 安装失败: {}", e);
-                        notify(&app, "MiMoBal · 更新失败", &format!("安装 v{} 失败：{}", v, e));
-                    }
-                }
-            }
-            Ok(None) => notify(&app, "MiMoBal", "已是最新版本"),
-            Err(e) => {
-                eprintln!("[update] 检查失败: {}", e);
-                notify(&app, "MiMoBal · 检查更新失败", &e.to_string());
-            }
-        }
-    });
-}
-
 // ---------- 刷新 ----------
 
 fn auth_looks_failed(msg: &str) -> bool {
@@ -467,12 +412,10 @@ fn build_tray_menu(app: &AppHandle, view: &TrayView) -> tauri::Result<Menu<tauri
         None::<&str>,
     )?;
     let settings = MenuItem::with_id(app, "settings", "设置", true, None::<&str>)?;
-    let update = MenuItem::with_id(app, "check_update", "检查更新", true, None::<&str>)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
     mb.item(&toggle)
         .item(&settings)
-        .item(&update)
         .item(&sep2)
         .item(&quit)
         .build()
@@ -585,7 +528,6 @@ fn create_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                         b.exit(0);
                     }
                     "settings" => open_settings(&b),
-                    "check_update" => install_update_async(b),
                     "toggle_float" => {
                         if let Some(shared) = b.try_state::<Shared>() {
                             toggle_float(&b, &shared);
@@ -927,7 +869,6 @@ fn main() {
         }))
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
-        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(TrayState(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             get_state,
@@ -979,13 +920,6 @@ fn main() {
                 refresh(rhandle, rshared, false).await;
             });
             start_timer(handle.clone(), shared.clone());
-
-            // 延迟静默检查更新：不跟首轮数据刷新抢网络，也不打断启动
-            let uapp = handle.clone();
-            tauri::async_runtime::spawn(async move {
-                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-                check_update_quiet(uapp).await;
-            });
 
             if shared.lock().unwrap().config.float.show {
                 toggle_float(&handle, &shared);
