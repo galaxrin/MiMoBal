@@ -3,6 +3,7 @@
 mod config;
 mod data;
 mod fields;
+mod history;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, LazyLock, Mutex};
@@ -27,6 +28,7 @@ pub struct Inner {
     pub dir: std::path::PathBuf,
     pub config: Config,
     pub snapshot: Option<Value>,
+    pub history: Vec<history::Sample>,
     pub error: Option<String>,
     pub auth_fail_until: u64,
     pub consec_fails: u32,
@@ -62,6 +64,7 @@ struct PublicState {
     // 有旧数据但当前拉取失败：界面灰显（stale）
     stale: bool,
     ts: u64,
+    trend: history::Trend,
     config: Config,
     fields_meta: &'static [FieldMeta],
 }
@@ -87,6 +90,15 @@ fn ordered_entries(inner: &Inner, target: &str) -> Vec<Entry> {
         .collect()
 }
 
+fn period_end(inner: &Inner) -> Option<String> {
+    inner
+        .snapshot
+        .as_ref()?
+        .get("detail")?
+        .get("currentPeriodEnd")
+        .map(|v| fields::date_text(Some(v)))
+}
+
 fn public_state(inner: &Inner) -> PublicState {
     PublicState {
         entries: ordered_entries(inner, "float"),
@@ -94,6 +106,7 @@ fn public_state(inner: &Inner) -> PublicState {
         error: inner.error.clone(),
         stale: inner.error.is_some() && inner.snapshot.is_some(),
         ts: inner.snapshot.as_ref().and_then(|s| s.get("ts")).and_then(|t| t.as_u64()).unwrap_or(0),
+        trend: history::trend(&inner.history, data::now_ms(), period_end(inner).as_deref()),
         config: inner.config.clone(),
         fields_meta: FIELDS,
     }
@@ -175,6 +188,59 @@ fn check_period_reset(app: &AppHandle, shared: &Shared) {
     }
 }
 
+// ---------- 趋势提醒（余额快用完 / 本月用量将超限，各自 12 小时限一次） ----------
+
+fn check_trend_alerts(app: &AppHandle, shared: &Shared) {
+    let now = data::now_ms();
+    let (trend, last_bal, last_use) = {
+        let inner = shared.lock().unwrap();
+        let trend = history::trend(&inner.history, now, period_end(&inner).as_deref());
+        (
+            trend,
+            inner.last_notify_at.get("trend.balance").copied().unwrap_or(0),
+            inner.last_notify_at.get("trend.usage").copied().unwrap_or(0),
+        )
+    };
+    const COOLING_MS: u64 = 12 * 60 * 60 * 1000;
+    let mut notify: Vec<(&str, &str, String)> = Vec::new();
+    if let (Some(days), Some(burn)) = (trend.days_left, trend.burn_day) {
+        if days < 3.0 && now.saturating_sub(last_bal) > COOLING_MS {
+            notify.push((
+                "trend.balance",
+                "余额即将用完",
+                format!("按最近一天的速度，约 {:.1} 天后用完（日均 ¥{:.1}）", days, burn),
+            ));
+        }
+    }
+    if let Some(proj) = trend.month_proj {
+        if proj > 100.0 && now.saturating_sub(last_use) > COOLING_MS {
+            notify.push((
+                "trend.usage",
+                "本月用量将超限",
+                format!("按最近一天的速度，月末预计 {:.0}%，配额可能提前用尽", proj),
+            ));
+        }
+    }
+    if notify.is_empty() {
+        return;
+    }
+    {
+        let mut inner = shared.lock().unwrap();
+        for (key, _, _) in &notify {
+            inner.last_notify_at.insert(key.to_string(), now);
+        }
+    }
+    for (key, title, body) in notify {
+        println!("[alert] {} -> {}", key, body);
+        let _ = app
+            .notification()
+            .builder()
+            .title(format!("MiMoBal · {}", title))
+            .body(body)
+            .show();
+    }
+}
+
 // ---------- 刷新 ----------
 
 fn auth_looks_failed(msg: &str) -> bool {
@@ -198,15 +264,24 @@ async fn refresh(app: AppHandle, shared: Shared, force: bool) {
     }
     match data::snapshot().await {
         Ok(snap) => {
+            let json = snap.to_json();
+            let values = fields::compute_values(&json);
+            let bal = values.get("balance.total").and_then(|v| v.num);
+            let pct = values.get("usage.monthPercent").and_then(|v| v.num);
             {
                 let mut inner = shared.lock().unwrap();
-                inner.snapshot = Some(snap.to_json());
+                inner.snapshot = Some(json);
                 inner.error = None;
                 inner.auth_fail_until = 0;
                 inner.consec_fails = 0;
+                if bal.is_some() || pct.is_some() {
+                    let dir = inner.dir.clone();
+                    history::record(&dir, &mut inner.history, snap.ts, bal, pct);
+                }
             }
             check_threshold_alerts(&app, &shared);
             check_period_reset(&app, &shared);
+            check_trend_alerts(&app, &shared);
         }
         Err(e) => {
             let mut inner = shared.lock().unwrap();
@@ -339,7 +414,11 @@ fn build_tray_menu(app: &AppHandle, view: &TrayView) -> tauri::Result<Menu<tauri
     let settings = MenuItem::with_id(app, "settings", "设置", true, None::<&str>)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-    mb.item(&toggle).item(&settings).item(&sep2).item(&quit).build()
+    mb.item(&toggle)
+        .item(&settings)
+        .item(&sep2)
+        .item(&quit)
+        .build()
 }
 
 fn update_tray(app: &AppHandle, shared: &Shared) {
@@ -692,21 +771,29 @@ async fn refresh_now(app: AppHandle, shared: tauri::State<'_, Shared>) -> Result
 
 #[tauri::command]
 fn save_config(app: AppHandle, shared: tauri::State<'_, Shared>, next: Value) {
-    let (launch_at_login, want_float) = {
+    let (launch_at_login, want_float, sec_changed) = {
         let mut inner = shared.lock().unwrap();
         // bounds 只由主进程在窗口移动时写入：渲染端持有的可能是过期快照
         let bounds = inner.config.float.bounds.clone();
+        let prev_sec = inner.config.refresh_sec;
         let mut cfg = config::parse_raw(next);
         cfg.float.bounds = bounds;
         inner.config = cfg;
         if let Err(e) = config::save_config(&inner.dir, &inner.config) {
             eprintln!("[config] save failed: {}", e);
         }
-        (inner.config.launch_at_login, inner.config.float.show)
+        (
+            inner.config.launch_at_login,
+            inner.config.float.show,
+            inner.config.refresh_sec != prev_sec,
+        )
     };
 
     apply_autostart(&app, launch_at_login);
-    start_timer(app.clone(), shared.inner().clone());
+    // 只有间隔真的变了才重启刷新循环：否则每次拖滑条都会把倒计时归零、推迟刷新
+    if sec_changed {
+        start_timer(app.clone(), shared.inner().clone());
+    }
 
     // 悬浮窗开/关与配置对齐（设置页胶囊驱动）
     let has_float = app.get_webview_window("float").is_some();
@@ -803,11 +890,13 @@ fn main() {
             config::migrate_old_config(&dir);
             let cfg = config::load_config(&dir);
             apply_autostart(&handle, cfg.launch_at_login);
+            let hist = history::load(&dir, data::now_ms());
 
             let shared: Shared = Arc::new(Mutex::new(Inner {
                 dir,
                 config: cfg,
                 snapshot: None,
+                history: hist,
                 error: None,
                 auth_fail_until: 0,
                 consec_fails: 0,
