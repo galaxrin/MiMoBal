@@ -5,26 +5,53 @@
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
   html, body { width: 100%; height: 100%; }
-  :root { --accent: #4c8dff; }
+  :root {
+    color-scheme: dark light;
+    --card: #121212;
+    --text: #ededed;
+    --muted: #9a9a9a;
+    --dim: #7f7f7f;
+    --line: rgba(255, 255, 255, 0.16);
+    --rule: rgba(255, 255, 255, 0.09);
+    --ink: #f2f2f2;
+    --on-ink: #101010;
+    --field: rgba(255, 255, 255, 0.09);
+    --field-hi: rgba(255, 255, 255, 0.16);
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      color-scheme: light dark;
+      --card: #ffffff;
+      --text: #111111;
+      --muted: #5f5f5f;
+      --dim: #767676;
+      --line: rgba(0, 0, 0, 0.16);
+      --rule: rgba(0, 0, 0, 0.09);
+      --ink: #111111;
+      --on-ink: #ffffff;
+      --field: rgba(0, 0, 0, 0.06);
+      --field-hi: rgba(0, 0, 0, 0.12);
+    }
+  }
   body {
     font-family: "PingFang SC", "Microsoft YaHei", "Segoe UI", -apple-system, sans-serif;
     /* 背景/圆角/边框放在 #card 上：body 背景会传播到视口画布（方形快速路径），
        border-radius 在该路径上不生效，圆角会时有时无 */
     background: transparent;
-    color: #e8eaed;
+    color: var(--text);
     overflow: hidden;
   }
   #card {
     min-height: 100%;
     width: 100%;
-    background: rgba(22, 24, 29, 0.96);
-    border: 1px solid #2a2e36;
+    background: var(--card);
+    border: 1px solid var(--line);
     border-radius: 12px;
     overflow: hidden;
   }
   /* 有旧数据但拉取失败：灰显表示数据过期 */
   #card.stale { opacity: 0.5; }
-  body.alarm #card { border-color: #e06c75; }
+  body.alarm #card { border-color: var(--ink); }
   body::-webkit-scrollbar { width: 0; height: 0; }
   body[data-density="compact"] .row { padding: 2px 0; }
   body[data-density="compact"] .hcell .v { font-size: 15px; }
@@ -34,56 +61,85 @@
     display: flex; align-items: center;
     padding: 7px 10px 2px;
   }
-  header b { font-size: 10px; font-weight: 600; color: #6b7078; }
+  header b {
+    font-size: 10px; font-weight: 600; color: var(--dim);
+    transition: color 0.15s;
+  }
+  header b.flash { color: var(--text); }
 
   #hero {
     display: flex; flex-wrap: nowrap; gap: 8px; padding: 4px 10px 2px;
   }
   /* basis=auto：格子按自身内容取宽，避免 flex-basis:0 平分时值被省略号截断 */
   .hcell { flex: 1 1 auto; min-width: 0; cursor: copy; }
-  .hcell .k { font-size: 9px; color: #6b7078; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hcell .k {
+    font-size: 9px; color: var(--dim);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
   .hcell .v {
     font-size: 18px; font-weight: 700; line-height: 1.3;
     letter-spacing: -0.3px; white-space: nowrap;
     overflow: hidden; text-overflow: ellipsis;
   }
-  .hcell .v.red { color: #e06c75; }
+
+  /* 阈值告警：黑白下靠反相块表达（⚠ 由渲染层加前缀） */
+  .hcell .v.red, .row .v.red {
+    display: inline-block; max-width: 100%;
+    background: var(--ink); color: var(--on-ink);
+    border-radius: 5px; padding: 0 5px;
+  }
 
   #toggle {
-    text-align: center; font-size: 9px; color: #6b7078;
+    text-align: center; font-size: 9px; color: var(--dim);
     padding: 1px 0 5px; cursor: pointer;
   }
-  #toggle:hover { color: #8b919a; }
+  #toggle:hover { color: var(--text); }
+
+  /* 趋势行：迷你折线 + 一句预测，无数据整行隐藏 */
+  #trend {
+    display: flex; align-items: center; gap: 6px;
+    padding: 0 10px 5px; font-size: 9px; color: var(--muted);
+  }
+  #trend[hidden] { display: none; }
+  #spark { flex: none; }
 
   #list { padding: 0 10px 2px; }
   .row {
     display: flex; justify-content: space-between; align-items: baseline;
-    padding: 4px 0; border-top: 1px solid #23262d; gap: 8px; cursor: copy;
+    padding: 4px 0; border-top: 1px solid var(--rule); gap: 8px; cursor: copy;
   }
-  .row .k { font-size: 10px; color: #8b919a; white-space: nowrap; flex: none; }
+  .row .k { font-size: 10px; color: var(--muted); white-space: nowrap; flex: none; }
   .row .v {
     font-size: 11px; font-weight: 600; text-align: right;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .row .v.red { color: #e06c75; }
 
   .err { padding: 8px 0 6px; max-width: 240px; }
-  .err-main { color: #e06c75; font-size: 11px; font-weight: 600; margin-bottom: 2px; }
-  .err-sub { color: #8b919a; font-size: 10px; line-height: 1.45; margin-bottom: 6px; word-break: break-word; }
-  .err button {
-    background: #23262d; border: 1px solid #2a2e36;
-    color: #c5c9d0; border-radius: 4px; font-size: 10px; padding: 2px 10px; cursor: pointer;
+  .err-main { color: var(--text); font-size: 11px; font-weight: 700; margin-bottom: 2px; }
+  .err-sub {
+    color: var(--muted); font-size: 10px; line-height: 1.45;
+    margin-bottom: 6px; word-break: break-word;
   }
-  .err button:hover { background: #2f3440; }
-  .empty { color: #6b7078; font-size: 10px; padding: 8px 0; }
+  .err button {
+    background: var(--field); border: 1px solid var(--line);
+    color: var(--text); border-radius: 4px; font-size: 10px; padding: 2px 10px;
+    cursor: pointer;
+    transition: background 0.16s ease;
+  }
+  .err button:hover { background: var(--field-hi); }
+  .empty { color: var(--dim); font-size: 10px; padding: 8px 0; }
 </style>
 </head>
 <body>
   <div id="card">
     <header data-tauri-drag-region>
-      <b>MiMo</b><span id="hdrWarn" style="display:none;color:#e06c75;margin-left:4px">⚠</span>
+      <b>MiMo</b><span id="hdrWarn" style="display:none;color:var(--ink);margin-left:4px">⚠</span>
     </header>
     <div id="hero"></div>
+    <div id="trend" hidden>
+      <svg id="spark" width="76" height="18"></svg>
+      <span id="trendTxt"></span>
+    </div>
     <div id="toggle"></div>
     <div id="list"></div>
   </div>
@@ -97,7 +153,12 @@
   let cfg = null;
   let error = '';
   let stale = false;
+  let trend = {};
   let expanded = localStorage.getItem('expanded') === '1';
+
+  // 跟随系统深浅：切主题时即时重绘（黑白两套，不带任何色相）
+  const scheme = window.matchMedia('(prefers-color-scheme: light)');
+  scheme.addEventListener('change', () => { if (cfg) render(); });
 
   // 窗口尺寸 = 内容尺寸：量自然宽 + 该宽度下的高，交给主进程 setBounds
   function fitWindow() {
@@ -116,27 +177,25 @@
   function applyLook() {
     const f = (cfg && cfg.float) || {};
     const op = Math.min(1, Math.max(0.3, f.opacity ?? 0.96));
-    // macOS 透明窗：rgba 透明度生效
-    // Windows 不透明黑底：改为卡片底色明度插值，保证滑条可感知
-    // op=1 → 设计色 #16181d；op=0.3 → 更暗但仍与纯黑拉开差距
-    const dark = [22, 24, 29];
-    const black = [8, 9, 12];
+    const light = scheme.matches;
+    // 深色近黑、浅色近白；macOS 真透明窗用 alpha，Windows 不透明窗用同色系明度插值，
+    // 两种方式都让透明度滑条可感知
+    const hi = light ? [255, 255, 255] : [18, 18, 18];
+    const lo = light ? [232, 232, 232] : [5, 5, 5];
     const t = (op - 0.3) / 0.7;
-    const r = Math.round(black[0] + (dark[0] - black[0]) * t);
-    const g = Math.round(black[1] + (dark[1] - black[1]) * t);
-    const b = Math.round(black[2] + (dark[2] - black[2]) * t);
+    const [r, g, b] = [0, 1, 2].map((i) => Math.round(lo[i] + (hi[i] - lo[i]) * t));
     const isWin = /Windows/i.test(navigator.userAgent || '');
     const card = document.getElementById('card');
     if (isWin) {
       card.style.background = `rgb(${r}, ${g}, ${b})`;
-      card.style.border = `1px solid rgba(42, 46, 54, ${0.35 + op * 0.65})`;
+      card.style.border = `1px solid rgba(${light ? '0, 0, 0' : '255, 255, 255'}, ${0.12 + op * 0.1})`;
     } else {
-      card.style.background = `rgba(22, 24, 29, ${op})`;
+      card.style.background = `rgba(${r}, ${g}, ${b}, ${op})`;
       card.style.border = '';
     }
     document.body.dataset.density = f.density === 'compact' ? 'compact' : 'std';
     document.body.classList.toggle('alarm', entries.some((e) => e.red));
-    document.getElementById('card').classList.toggle('stale', stale);
+    card.classList.toggle('stale', stale);
   }
 
   function heroEntries() {
@@ -162,16 +221,73 @@
   function copyText(t) {
     api.copyText(t);
     titleEl.textContent = '已复制 ✓';
-    titleEl.style.color = '#4c8dff';
+    titleEl.classList.add('flash');
     clearTimeout(copyTimer); // 连续点击：旧计时器不能提前把标题改回去
     copyTimer = setTimeout(() => {
       titleEl.textContent = 'MiMo';
-      titleEl.style.color = '';
+      titleEl.classList.remove('flash');
     }, 900);
+  }
+
+  const sparkEl = document.getElementById('spark');
+  const trendEl = document.getElementById('trend');
+  const trendTxtEl = document.getElementById('trendTxt');
+
+  // 预测文案：拿不到斜率就不显示（数据点不足 / 余额在涨）
+  function trendText(tr) {
+    const parts = [];
+    if (tr.daysLeft != null) {
+      parts.push(tr.daysLeft < 1
+        ? '余额不足 1 天'
+        : `还能用 ~${tr.daysLeft < 10 ? tr.daysLeft.toFixed(1) : Math.round(tr.daysLeft)} 天`);
+    }
+    if (tr.burnDay != null) parts.push(`日均 ¥${tr.burnDay.toFixed(1)}`);
+    // 充值后没有可用斜率：给一句状态说明，别让趋势行整行消失
+    if (tr.daysLeft == null && tr.burnDay == null && tr.rising) parts.push('余额上升中');
+    if (tr.monthProj != null) parts.push(`月末用量 ${Math.round(tr.monthProj)}%`);
+    return parts.join(' · ');
+  }
+
+  // 余额序列 → 折线路径（按窗口自适应，最后 24 小时）
+  function sparkPath(pts) {
+    const w = 76, h = 18, pad = 1.5;
+    const t0 = pts[0][0];
+    const span = Math.max(1, pts[pts.length - 1][0] - t0);
+    const vs = pts.map((p) => p[1]);
+    let lo = Math.min(...vs), hi = Math.max(...vs);
+    if (hi - lo < 1e-9) { lo -= 0.5; hi += 0.5; } // 余额没动：画中间直线
+    const x = (t) => pad + (w - pad * 2) * ((t - t0) / span);
+    const y = (v) => h - pad - (h - pad * 2) * ((v - lo) / (hi - lo));
+    return pts.map((p, i) => `${i ? 'L' : 'M'}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join(' ');
+  }
+
+  function renderTrend() {
+    const tr = trend || {};
+    const pts = Array.isArray(tr.points) ? tr.points : [];
+    const mini = ((cfg && cfg.float && cfg.float.mode) || 'full') === 'mini';
+    const txt = trendText(tr);
+    // 无字段 = 没有数据（登录失败/未勾选），趋势也一并隐藏
+    if (mini || !txt || !entries.length) { trendEl.hidden = true; return; }
+    const danger = (tr.daysLeft != null && tr.daysLeft < 3) || (tr.monthProj != null && tr.monthProj > 100);
+    trendEl.hidden = false;
+    trendTxtEl.textContent = txt;
+    trendTxtEl.style.color = danger ? 'var(--ink)' : '';
+    sparkEl.innerHTML = '';
+    if (pts.length < 2) { sparkEl.style.display = 'none'; return; }
+    sparkEl.style.display = '';
+    const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    p.setAttribute('d', sparkPath(pts));
+    p.setAttribute('fill', 'none');
+    p.style.stroke = danger ? 'var(--ink)' : 'var(--muted)';
+    p.setAttribute('stroke-width', '1.2');
+    p.setAttribute('stroke-linejoin', 'round');
+    p.setAttribute('stroke-linecap', 'round');
+    sparkEl.appendChild(p);
   }
 
   function renderInner() {
     applyLook();
+    renderTrend();
     document.getElementById('hdrWarn').style.display = error ? '' : 'none';
     heroEl.innerHTML = '';
     listEl.innerHTML = '';
@@ -218,7 +334,7 @@
       cell.innerHTML = '<div class="k"></div><div class="v"></div>';
       cell.querySelector('.k').textContent = e.label;
       const v = cell.querySelector('.v');
-      v.textContent = e.text;
+      v.textContent = (e.red ? '⚠ ' : '') + e.text;
       if (e.red) v.classList.add('red');
       cell.onclick = () => copyText(e.text);
       heroEl.appendChild(cell);
@@ -260,6 +376,7 @@
     cfg = s.config;
     error = s.error || '';
     stale = !!s.stale;
+    trend = s.trend || {};
     render();
   }
   api.onState(onState);
