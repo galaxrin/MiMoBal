@@ -35,9 +35,12 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: MiMoBal ${{ github.ref_name }}
+          includeUpdaterJson: true
           releaseBody: |
             Rust (Tauri 2) 重写版。
             - macOS：`MiMoBal_*.dmg`（Apple Silicon）
@@ -48,7 +51,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: Keep only dmg and setup.exe
+      - name: Keep only installers and updater artifacts
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -56,7 +59,7 @@ jobs:
           REPO="${GITHUB_REPOSITORY}"
           for a in $(gh release view "$TAG" -R "$REPO" --json assets --jq '.assets[].name'); do
             case "$a" in
-              *.dmg|*-setup.exe) ;;
+              *.dmg|*-setup.exe|*.sig|latest.json|*.app.tar.gz|*.nsis.zip) ;;
               *) gh release delete-asset "$TAG" "$a" -y -R "$REPO" ;;
             esac
           done

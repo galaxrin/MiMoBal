@@ -12,3 +12,7 @@ src-tauri/target/
 src-tauri/gen/
 .claude/
 agent/
+
+# 更新签名私钥（本地/CI 均不入库）
+*.key
+*.key.pub
